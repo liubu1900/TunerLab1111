@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TunerLab 校准参数获取方法 · 与行业通用方法对照</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#ffffff; --ink:#1f2937; --muted:#64748b;
+    --line:#e2e8f0; --accent:#2563eb; --accent-soft:#eff6ff;
+    --warn:#b45309; --warn-bg:#fffbeb; --ok:#047857; --ok-bg:#ecfdf5;
+    --err:#b91c1c; --err-bg:#fef2f2; --code-bg:#0f172a;
+    --vendorA:#7c3aed; --vendorB:#0891b2;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{font-family:"Noto Sans SC",sans-serif;color:var(--ink);background:var(--bg);margin:0;line-height:1.7;font-size:15px;}
+  .num,.mono,code,pre,table td.num,table th{font-family:"Gilroy","Consolas",monospace;}
+  header.top{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;padding:30px 36px;}
+  header.top h1{margin:0 0 6px;font-size:25px;}
+  header.top p{margin:0;opacity:.9;font-size:14px;}
+  .wrap{max-width:1060px;margin:0 auto;padding:24px 28px 60px;}
+  nav.toc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:24px 0;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+  nav.toc h2{margin:0 0 10px;font-size:16px;}
+  nav.toc ol{margin:0;padding-left:22px;columns:2;column-gap:36px;}
+  nav.toc li{margin:4px 0;break-inside:avoid;}
+  nav.toc a{color:var(--accent);text-decoration:none;}
+  section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px 26px;margin:22px 0;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+  section h2{margin:0 0 14px;font-size:21px;border-left:5px solid var(--accent);padding-left:12px;}
+  section h3{margin:22px 0 8px;font-size:17px;color:#0f172a;}
+  section h4{margin:16px 0 6px;font-size:15px;color:#334155;}
+  p{margin:10px 0;} ul,ol{margin:10px 0;padding-left:24px;} li{margin:5px 0;}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px;}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top;}
+  th{background:var(--accent-soft);color:#0f172a;}
+  tr:nth-child(even) td{background:#fafbfc;}
+  code{background:#eef2f7;padding:1px 6px;border-radius:5px;font-size:13px;color:#0f172a;}
+  pre{background:var(--code-bg);color:#e2e8f0;padding:16px 18px;border-radius:10px;overflow:auto;font-size:13px;line-height:1.55;}
+  pre .c{color:#7dd3fc;} pre .p{color:#fca5a5;} pre .g{color:#86efac;}
+  .figure{margin:18px 0;text-align:center;}
+  .figure svg{width:100%;max-width:660px;height:auto;background:#fff;border:1px solid var(--line);border-radius:10px;}
+  .cap{font-size:13px;color:var(--muted);margin-top:6px;}
+  .note,.tip,.warn,.danger,.ref-box-a,.ref-box-b{border-radius:10px;padding:12px 16px;margin:14px 0;font-size:14px;border:1px solid transparent;}
+  .note{background:var(--accent-soft);border-color:#bfdbfe;color:#1e40af;}
+  .tip{background:var(--ok-bg);border-color:#a7f3d0;color:#065f46;}
+  .warn{background:var(--warn-bg);border-color:#fde68a;color:#92400e;}
+  .danger{background:var(--err-bg);border-color:#fecaca;color:#991b1b;}
+  .ref-box-a{background:#f5f3ff;border-color:#ddd6fe;color:#4c1d95;}
+  .ref-box-b{background:#ecfeff;border-color:#a5f3fc;color:#155e75;}
+  .badge{display:inline-block;background:var(--accent);color:#fff;border-radius:20px;padding:1px 10px;font-size:12px;margin-right:6px;}
+  .bf{display:inline-block;background:var(--vendorA);color:#fff;border-radius:20px;padding:1px 10px;font-size:12px;margin-right:6px;}
+  .bm{display:inline-block;background:var(--vendorB);color:#fff;border-radius:20px;padding:1px 10px;font-size:12px;margin-right:6px;}
+  .p0{color:#b91c1c;font-weight:700;} .p1{color:#b45309;font-weight:700;} .p2{color:#475569;font-weight:700;}
+  .src{font-size:13px;color:var(--muted);}
+  footer{text-align:center;color:var(--muted);font-size:13px;padding:20px;}
+  .ok-mark{color:#047857;font-weight:700;} .gap-mark{color:#b91c1c;font-weight:700;}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>校准参数获取方法 · TunerLab 现状与行业通用方法对照</h1>
+  <p>整理日期 2026-11-03 &nbsp;|&nbsp; 对应代码 <code class="mono">tuner/{calibration,search,database,models}.py</code> &nbsp;|&nbsp; 资料来源见文末</p>
+</header>
+
+<div class="wrap">
+
+<nav class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#s0">结论速览</a></li>
+    <li><a href="#s1">TunerLab 现状：三条路径</a></li>
+    <li><a href="#s2">商用调谐软件支持的方法</a></li>
+    <li><a href="#s3">行业通用的表征方法</a></li>
+    <li><a href="#s4">对照映射表</a></li>
+    <li><a href="#s5">差距清单与实现优先级</a></li>
+    <li><a href="#s6">参考资料</a></li>
+  </ol>
+</nav>
+
+<!-- ============ 0 ============ -->
+<section id="s0">
+  <h2>0. 结论速览</h2>
+  <div class="note">
+    <b>直接回答你的问题：</b>TunerLab 目前<b>校准参数（调谐器表征）的采集方式只有 1 种</b>——<b>指定每个轴的机械点位，逐点移动 + 逐点实测</b>
+    （笛卡尔网格）。所谓"按史密斯图自动确认点位"目前<b>不是采集方式</b>，而是<b>基于已采集网格的查表/插值推断</b>，
+    且代码里明确标注为 <code class="mono">predicted=True</code>（预测值，非实测）。
+  </div>
+
+  <table>
+    <thead><tr><th>层次</th><th>TunerLab 现状</th><th>方法数</th><th>与行业通用方法的关系</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>① 采集/表征</b><br>（校准参数怎么来）</td>
+        <td>笛卡尔网格逐点实测：<code class="mono">x_count</code> × <code class="mono">z_count</code><sup>probes</sup> 个点位，
+            逐点 <code class="mono">move_to → measure → write_point</code></td>
+        <td class="num">1 种</td>
+        <td><span class="gap-mark">缺</span> 通用做法中的 <b>Smith 图均匀布点</b> 与 <b>点密度分级</b></td>
+      </tr>
+      <tr>
+        <td><b>② 点位自动确认</b><br>（给定目标阻抗找点位）</td>
+        <td>(a) Γ 平面 KD 树最近邻查表 <code class="mono">search()</code>；<br>
+            (b) 凸包线性插值 + SLSQP 局部优化 <code class="mono">optimize_local()</code></td>
+        <td class="num">2 种<br>（均为推断）</td>
+        <td><span class="gap-mark">缺</span> 通用做法中的 <b>二阶 Lagrange 插值 + 梯度搜索</b>；<br>
+            <span class="ok-mark">有</span> 概念上对应"一般搜索"第一步</td>
+      </tr>
+      <tr>
+        <td><b>③ 验证</b></td>
+        <td>(a) A/B 两点重复往返的矢量复现性报告 <code class="mono">repeatability_report()</code>；<br>
+            (b) 对已标定点位重新实测复核 <code class="mono">studio_validate</code></td>
+        <td class="num">2 种</td>
+        <td><span class="ok-mark">接近</span> 通用做法中的"插值点复测 + 误差矢量"验证闭环，但缺<b>门限判定与重标定建议</b></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="warn"><b>还有一个必须知道的现状：</b>校准工作台的<b>运动侧目前仍是 Mock</b>
+    （<code class="mono">studio_init_hardware</code> 里 <code class="mono">motion = MotionController(config)</code>，即 Mock 控制器）。
+    真实 Zmotion 四轴目前只接在"运动控制台"页面，与校准工作台<b>尚未打通</b>；
+    只有矢网侧可以切到实机（<code class="mono">vna_source=real</code>）。</div>
+</section>
+
+<!-- ============ 1 ============ -->
+<section id="s1">
+  <h2>1. TunerLab 现状：三条路径</h2>
+
+  <h3>1.1 路径 A — 采集/表征（唯一的一种）</h3>
+  <table>
+    <thead><tr><th>环节</th><th>实现位置</th><th>做法</th></tr></thead>
+    <tbody>
+      <tr><td>点位生成</td><td><code class="mono">models.py::TunerConfig.grid()</code></td>
+          <td><code class="mono">itertools.product(x_values, z_values × probes)</code>——<b>全笛卡尔积</b>，
+              X 与各 Z 轴<b>完全独立</b>，<code class="mono">fixed_offsets</code> 未参与布点</td></tr>
+      <tr><td>建库</td><td><code class="mono">database.py::create()</code></td>
+          <td>HDF5 建 <code class="mono">frequencies / positions / actual / s / valid / errors</code>，
+              SQLite 建 <code class="mono">tasks</code> 断点续测表</td></tr>
+      <tr><td>逐点实测</td><td><code class="mono">calibration.py::run()</code></td>
+          <td>对每个待测点：<code class="mono">planner.move_to()</code> → <code class="mono">vna.measure()</code> →
+              <code class="mono">write_point()</code>；支持<b>暂停/恢复/取消/重试</b>，
+              <code class="mono">valid</code> 标志作为提交标记</td></tr>
+      <tr><td>安全运动</td><td><code class="mono">motion.py::MotionPlanner</code></td>
+          <td>共享 X 运动前所有 Z 探针必须回缩到 <code class="mono">safe_z</code>，两端都满足才放行</td></tr>
+    </tbody>
+  </table>
+
+  <div class="danger"><b>点位数量会爆炸：</b>因是全笛卡尔积，点数 = <code class="mono">x_count × z_count^probes</code>。
+    实测算式（已用代码验证）：</div>
+  <table>
+    <thead><tr><th>探针数</th><th>x_count</th><th>z_count</th><th>点数</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td class="num">2</td><td class="num">9</td><td class="num">4</td><td class="num">144</td><td>默认值</td></tr>
+      <tr><td class="num">3</td><td class="num">9</td><td class="num">4</td><td class="num">576</td><td><b>默认值，实机耗时需评估</b></td></tr>
+      <tr><td class="num">3</td><td class="num">9</td><td class="num">3</td><td class="num">243</td><td>—</td></tr>
+      <tr><td class="num">3</td><td class="num">3</td><td class="num">2</td><td class="num">24</td><td>Mock 冒烟测试用的量级</td></tr>
+    </tbody>
+  </table>
+  <p class="src">这是与行业通用方法最大的结构性差异：主流方案都是<b>在 Smith 图上均匀铺点</b>（点数与维度无关地线性增长），
+    而当前实现是<b>在机械坐标立方体上铺点</b>（点数随探针数幂次增长），且大量点位落在 Smith 图的"死区"（Γ 很小），
+    对覆盖同样的阻抗范围是浪费。</p>
+
+  <h3>1.2 路径 B — 点位自动确认（查表 + 插值，均为推断）</h3>
+  <table>
+    <thead><tr><th>方法</th><th>实现</th><th>数学</th><th>注意</th></tr></thead>
+    <tbody>
+      <tr><td>(b1) Γ 平面最近邻查表</td><td><code class="mono">search.py::GammaSearchEngine.search()</code></td>
+          <td>在 (Re Γ, Im Γ) 上建 <code class="mono">cKDTree</code>，取最近 k 点，
+              误差 = 复平面欧氏距离</td>
+          <td>只给出<b>已标定过</b>的点位；误差可判"可达/不可达"</td></tr>
+      <tr><td>(b2) 凸包插值 + 局部优化</td><td><code class="mono">optimize_local()</code></td>
+          <td><code class="mono">LinearNDInterpolator</code>（Delaunay 凸包）在归一化机械坐标上插值，
+              <code class="mono">SLSQP</code> 最小化 |Γ(x) − Γ_target|²</td>
+          <td>返回 <code class="mono">predicted=True</code>；凸包退化（QHullError）时<b>显式回退</b>到最近邻</td></tr>
+      <tr><td>(b3) 多频加权寻优</td><td><code class="mono">search_multi()</code></td>
+          <td>多频 Γ 误差的加权 RMS，排序取前 k</td>
+          <td>用于非谐波相关多频场景的雏形</td></tr>
+    </tbody>
+  </table>
+  <div class="warn"><b>关键区别：</b>这是"<b>先标定、再查表</b>"的离线推断，
+    <b>不是</b>行业通用方案那种"给目标 → 自动移动 → 实测 → 迭代收敛"的闭环自动寻点。
+    当前代码没有任何"根据实测结果反馈调整点位"的迭代回路。</div>
+
+  <h3>1.3 路径 C — 验证</h3>
+  <table>
+    <thead><tr><th>方法</th><th>实现</th><th>口径</th></tr></thead>
+    <tbody>
+      <tr><td>(c1) 矢量复现性</td><td><code class="mono">validation.py::repeatability_report()</code></td>
+          <td>A/B 两点交替往返 ≥3 次，按频率统计复数平面的 <b>矢量 RMS / 样本标准差 / 最大偏差</b>
+              （线性单位，<b>不是</b> dB 差），并保留完整 S11/S21 谱</td></tr>
+      <tr><td>(c2) 标定点位复核</td><td><code class="mono">web/handlers.py::studio_validate</code></td>
+          <td>对 <code class="mono">valid</code> 点位重新实测并与库内数据比对</td></tr>
+    </tbody>
+  </table>
+
+  <div class="figure">
+    <svg viewBox="0 0 660 260" role="img" aria-label="TunerLab 当前校准流程">
+      <defs>
+        <marker id="a1" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#475569"/>
+        </marker>
+      </defs>
+      <g font-size="11" text-anchor="middle">
+        <rect x="6" y="16" width="120" height="46" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+        <text x="66" y="36">① 采集</text><text x="66" y="52" font-size="9" fill="#64748b">笛卡尔网格逐点实测</text>
+
+        <rect x="146" y="16" width="120" height="46" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+        <text x="206" y="36">② 存储</text><text x="206" y="52" font-size="9" fill="#64748b">HDF5 + SQLite 断点</text>
+
+        <rect x="286" y="16" width="120" height="46" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+        <text x="346" y="36">③ 建 Γ 表</text><text x="346" y="52" font-size="9" fill="#64748b">cKDTree / 凸包</text>
+
+        <rect x="426" y="16" width="120" height="46" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+        <text x="486" y="36">④ 寻点</text><text x="486" y="52" font-size="9" fill="#64748b">最近邻 / 插值优化</text>
+
+        <rect x="566" y="16" width="88" height="46" rx="8" fill="#ecfdf5" stroke="#059669"/>
+        <text x="610" y="36">⑤ 移动</text><text x="610" y="52" font-size="9" fill="#64748b">+ 验证</text>
+      </g>
+      <g stroke="#475569" stroke-width="2" marker-end="url(#a1)">
+        <line x1="126" y1="39" x2="144" y2="39"/>
+        <line x1="266" y1="39" x2="284" y2="39"/>
+        <line x1="406" y1="39" x2="424" y2="39"/>
+        <line x1="546" y1="39" x2="564" y2="39"/>
+      </g>
+      <rect x="6" y="86" width="314" height="66" rx="9" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+      <text x="20" y="106" font-size="11" font-weight="700" fill="#9a3412">现状限制</text>
+      <text x="20" y="124" font-size="10" fill="#7c2d12">点数 = x_count × z_count^probes（3 探针默认 576 点）</text>
+      <text x="20" y="140" font-size="10" fill="#7c2d12">机械立方体布点 ≠ Smith 图均匀覆盖；大量点落在 Γ 死区</text>
+      <rect x="340" y="86" width="314" height="66" rx="9" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+      <text x="354" y="106" font-size="11" font-weight="700" fill="#1e3a8a">待补（对标行业通用方法）</text>
+      <text x="354" y="124" font-size="10" fill="#1e40af">① Smith 图均匀布点 + 密度分级 ② 二阶插值 + 梯度搜索</text>
+      <text x="354" y="140" font-size="10" fill="#1e40af">③ 频率插值 ④ 插值点复测误差矢量 + 重标定建议</text>
+      <text x="330" y="192" text-anchor="middle" font-size="10" fill="#64748b">校准工作台的运动侧当前仍是 Mock（真实 Zmotion 未接入此链路）</text>
+    </svg>
+    <div class="cap">图 1&nbsp; TunerLab 现状：1 种采集方式 + 2 种推断寻点方式 + 2 种验证方式</div>
+  </div>
+</section>
+
+<!-- ============ 2 ============ -->
+<section id="s2">
+  <h2>2. 商用调谐软件支持的方法</h2>
+
+  <div class="ref-box-a">
+    <b>行业通用的方法学核心（专利摘要原文要点）：</b>单/多探针高频 slide-screw 调谐器采用<b>快速校准算法</b>，
+    在 Smith 图上<b>创建分布均匀的校准点</b>，并用<b>二阶插值算法</b>在校准点之间取值；
+    快速调谐算法 = <b>先做一般搜索（general search）找到最近的校准点</b>，
+    <b>再用细插值网格做梯度搜索（gradient search）</b>逼近目标。
+    专利称可达 <b>−60 dB</b> 调谐精度（Smith 图上偏差 0.001），
+    而<b>没有细网格插值时仅约 −20 dB</b>（偏差 0.1）。
+    该方法同样适用于双探针/三探针<b>谐波</b>调谐器。
+  </div>
+
+  <table>
+    <thead><tr><th>行业通用的能力</th><th>具体做法</th><th>出处</th></tr></thead>
+    <tbody>
+      <tr><td>① Smith 图均匀布点</td>
+          <td>每个频率在<b>尽量等间距覆盖整个 Smith 图</b>的固定数量阻抗点上标定；点数可选
+              <b>95 / 181 / 361</b>（可选 <b>385</b>）；系统软件提供 <b>181 点</b>。
+              181 点并非"只能调 181 点"——可调状态数达 <b>50 万 ~ 1100 万</b></td>
+          <td>通用应用笔记摘录</td></tr>
+      <tr><td>② 二阶插值（相干 X/Y 方向）</td>
+          <td>在<b>相位/幅度近似解耦</b>的坐标系里插值：<b>水平(X)控制相位、竖直(Y)控制 |Γ|</b>。
+              取最近 3 个水平层 × 最近 3 个竖直层 = <b>9 个校准点</b>网格，
+              先在竖直方向用<b>二阶 Lagrange</b>插值生成虚拟点，再在水平方向插值</td>
+          <td>通用应用笔记摘录</td></tr>
+      <tr><td>③ 两段式快速调谐</td>
+          <td>一般搜索（定位最近校准点）→ 梯度搜索（细插值网格）→ 目标</td>
+          <td>通用专利方法（阻抗调谐器标定与调谐）</td></tr>
+      <tr><td>④ 校准类型体系</td>
+          <td>区分 <b>VNA 校准</b>（推荐 <b>TRL</b>；SOLT 在 3–4 GHz 以上不可接受）、
+              <b>Setup 校准</b>（所有组件二端口存 .S2P）、<b>Fixture 校准</b>（自研 TRL，可含 1/4 波长变换器与偏置网络）、
+              <b>Wafer Probe 校准</b>、<b>In-situ 调谐器校准</b>（不拆机同时表征 f0/2f0/3f0）、
+              <b>8-term 校准</b>（用于 HAILP 有源/无源混合谐波负载拉取）</td>
+          <td>通用资料：Calibration 页</td></tr>
+      <tr><td>⑤ 快速预匹配调谐器表征</td>
+          <td>400×400 = <b>160,000 个阻抗点/频率</b>，新型表征算法把耗时压到 <b>≤20 分钟/频率</b>，
+              配合插值实现"等效连续可调"</td>
+          <td>厂商产品简介 PN-52</td></tr>
+      <tr><td>⑥ 调谐范围（Γ 口径）</td>
+          <td>标准 CCMT/MTS 可调 <b>Γ = 0.82~0.85</b>（VSWR 10:1~12.5:1）；
+              <b>-HR</b> 选件到 <b>Γ = 0.904</b>（VSWR 20:1）；更低内阻需配 λ/4 变换网络</td>
+          <td>厂商产品简介 PN-24</td></tr>
+    </tbody>
+  </table>
+
+  <div class="figure">
+    <svg viewBox="0 0 660 210" role="img" aria-label="通用方法流程">
+      <defs>
+        <marker id="a2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#7c3aed"/>
+        </marker>
+      </defs>
+      <g font-size="11" text-anchor="middle">
+        <rect x="8" y="20" width="150" height="50" rx="9" fill="#f5f3ff" stroke="#7c3aed"/>
+        <text x="83" y="40" font-weight="700" fill="#4c1d95">① Smith 图均匀布点</text>
+        <text x="83" y="57" font-size="9" fill="#6d28d9">95 / 181 / 361 / 385 点</text>
+
+        <rect x="178" y="20" width="150" height="50" rx="9" fill="#f5f3ff" stroke="#7c3aed"/>
+        <text x="253" y="40" font-weight="700" fill="#4c1d95">② 二阶 Lagrange 插值</text>
+        <text x="253" y="57" font-size="9" fill="#6d28d9">9 点网格 · X=相位 Y=幅度</text>
+
+        <rect x="348" y="20" width="140" height="50" rx="9" fill="#f5f3ff" stroke="#7c3aed"/>
+        <text x="418" y="40" font-weight="700" fill="#4c1d95">③ 一般搜索</text>
+        <text x="418" y="57" font-size="9" fill="#6d28d9">定位最近校准点</text>
+
+        <rect x="508" y="20" width="146" height="50" rx="9" fill="#f5f3ff" stroke="#7c3aed"/>
+        <text x="581" y="40" font-weight="700" fill="#4c1d95">④ 梯度搜索</text>
+        <text x="581" y="57" font-size="9" fill="#6d28d9">细网格逼近目标</text>
+      </g>
+      <g stroke="#7c3aed" stroke-width="2" marker-end="url(#a2)">
+        <line x1="158" y1="45" x2="176" y2="45"/>
+        <line x1="328" y1="45" x2="346" y2="45"/>
+        <line x1="488" y1="45" x2="506" y2="45"/>
+      </g>
+      <rect x="8" y="96" width="646" height="50" rx="9" fill="#faf5ff" stroke="#ddd6fe"/>
+      <text x="22" y="116" font-size="11" font-weight="700" fill="#4c1d95">精度口径</text>
+      <text x="22" y="134" font-size="10" fill="#5b21b6">有细网格插值：−60 dB（Smith 图偏差 0.001）&nbsp;&nbsp;|&nbsp;&nbsp;无细网格插值：约 −20 dB（偏差 0.1）</text>
+      <text x="330" y="172" text-anchor="middle" font-size="10" fill="#64748b">适用：单/多探针 slide-screw 调谐器，并可扩展到双/三探针谐波调谐器</text>
+    </svg>
+    <div class="cap">图 2&nbsp; 通用方法：均匀布点 → 二阶插值 → 一般搜索 → 梯度搜索</div>
+  </div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section id="s3">
+  <h2>3.行业通用的表征方法</h2>
+
+  <div class="ref-box-b">
+    <b>行业通用方法学核心：</b>用户只需<b>声明测量应用</b>
+    （<b>Load/Source Pull</b> 还是 <b>DVT 设计验证测试</b>），
+    软件就<b>自动选择最合适的调谐器表征方法与条件</b>；
+    表征参数里直接暴露<b>阻抗点密度</b>（Low / Medium / High）与
+    <b>点间距指标</b>（Magnitude / Max Phase Step），并可<b>在 Smith 图上可视化布点</b>。
+    DVT 表征比常规表征<b>快 10~100 倍</b>（取决于所选频率数）。
+  </div>
+
+  <table>
+    <thead><tr><th>行业通用能力</th><th>具体做法</th><th>出处</th></tr></thead>
+    <tbody>
+      <tr><td>① 两种表征方法自动选择</td>
+          <td><b>Source/Load Pull</b>：单/多 carriage 调谐器，在被表征频率上做阻抗调谐，适合负载拉取；
+              <b>DVT</b>：单 carriage 调谐器，适合器件验证测试，<b>启用频率插值</b>。
+              软件按应用自动选方法与条件</td>
+          <td>商用表征软件 MAPCON 2024；R&amp;S 负载拉取基础讲义</td></tr>
+      <tr><td>② 点密度与布点可视化</td>
+          <td>表征参数：<b>阻抗点密度 Low / Medium / High</b>、
+              <b>Point Separation Magnitude 0.07</b>、<b>Max Phase Step 15</b>；
+              点击 <b>Visualize</b> 把布点显示在 <b>Smith 图</b>上</td>
+          <td>商用软件界面（R&amp;S 讲义截图）</td></tr>
+      <tr><td>③ 预标定 LUT</td>
+          <td>预标定 = 在各 <b>X/Y 位置</b>用<b>已校准的 VNA</b>记录探针 S 参数，
+              <b>X/Y 的选取使阻抗在 Smith 图上尽量均匀分布</b>；
+              点数用户可定义（<b>通常 300~3000</b>）</td>
+          <td>自动调谐器数据表（2.4 mm / 1.85 mm）</td></tr>
+      <tr><td>④ 二维插值扩展可调空间</td>
+          <td>目标阻抗落在标定点之间时，用<b>二维插值算法</b>求新的物理 X/Y 位置；
+              插值把可调阻抗数<b>远超初始标定范围</b>；标定表足够密时，
+              <b>复现性（回到标定点）与精度（插值）表现相当</b></td>
+          <td>自动调谐器数据表（2.4 mm / 1.85 mm）</td></tr>
+      <tr><td>⑤ 验证闭环</td>
+          <td>命令调谐器到<b>一组插值得到的阻抗</b>，用<b>已校准的 VNA</b>测其 S 参数，
+              计算并报告<b>误差矢量</b>；若低于业界公认门限则<b>建议重新标定</b></td>
+          <td>商用表征软件 MAPCON 2024</td></tr>
+      <tr><td>⑥ 频率维度能力</td>
+          <td>支持<b>基波</b>、<b>谐波</b>、<b>非谐波相关多频</b>、<b>频率插值</b>调谐；
+              增强的频率插值与更快的多频表征</td>
+          <td>商用软件特性表</td></tr>
+      <tr><td>⑦ 硬件端 LUT + 去嵌入</td>
+          <td>专利控制器（US 8,823,392）内置处理器与存储：<b>标定后 LUT 写入 flash</b>，
+              同时存入被动件（转接头/电缆/夹具/探针/衰减器）的 S 参数文件；
+              控制器据此计算所需探针位置，并<b>对 tuner↔DUT 与 tuner↔仪器两侧做去嵌入</b>，
+              还能处理非 50 Ω 终端</td>
+          <td>自动调谐器数据表</td></tr>
+      <tr><td>⑧ 开放指令接口</td>
+          <td>控制器支持 <b>raw TCP/IP ASCII</b> 直连指令（任意 socket 语言 / Telnet）：
+              <b>直接阻抗调谐、参考面平移、VSWR 测试</b>等</td>
+          <td>自动调谐器数据表</td></tr>
+    </tbody>
+  </table>
+
+  <div class="figure">
+    <svg viewBox="0 0 660 230" role="img" aria-label="行业通用方法流程">
+      <defs>
+        <marker id="a3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#0891b2"/>
+        </marker>
+      </defs>
+      <g font-size="11" text-anchor="middle">
+        <rect x="8" y="16" width="130" height="52" rx="9" fill="#ecfeff" stroke="#0891b2"/>
+        <text x="73" y="36" font-weight="700" fill="#155e75">① 声明应用</text>
+        <text x="73" y="53" font-size="9" fill="#0e7490">Load Pull / DVT</text>
+
+        <rect x="158" y="16" width="130" height="52" rx="9" fill="#ecfeff" stroke="#0891b2"/>
+        <text x="223" y="36" font-weight="700" fill="#155e75">② 选表征方法</text>
+        <text x="223" y="53" font-size="9" fill="#0e7490">软件自动选择条件</text>
+
+        <rect x="308" y="16" width="130" height="52" rx="9" fill="#ecfeff" stroke="#0891b2"/>
+        <text x="373" y="36" font-weight="700" fill="#155e75">③ 点密度/布点</text>
+        <text x="373" y="53" font-size="9" fill="#0e7490">Low/Med/High · Visualize</text>
+
+        <rect x="458" y="16" width="196" height="52" rx="9" fill="#ecfeff" stroke="#0891b2"/>
+        <text x="556" y="36" font-weight="700" fill="#155e75">④ 表征（LUT）</text>
+        <text x="556" y="53" font-size="9" fill="#0e7490">300~3000 点 · 二维插值</text>
+      </g>
+      <g stroke="#0891b2" stroke-width="2" marker-end="url(#a3)">
+        <line x1="138" y1="42" x2="156" y2="42"/>
+        <line x1="288" y1="42" x2="306" y2="42"/>
+        <line x1="438" y1="42" x2="456" y2="42"/>
+        <line x1="556" y1="68" x2="556" y2="92"/>
+      </g>
+      <rect x="330" y="92" width="324" height="46" rx="9" fill="#cffafe" stroke="#0891b2"/>
+      <text x="492" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="#155e75">⑤ 验证闭环：插值点复测 → 误差矢量 → 门限判定 → 建议重标定</text>
+      <text x="492" y="129" text-anchor="middle" font-size="9" fill="#0e7490">DVT 路径可快 10~100 倍</text>
+      <rect x="8" y="92" width="302" height="46" rx="9" fill="#f0fdfa" stroke="#5eead4"/>
+      <text x="159" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="#115e59">⑥ 硬件端 LUT（flash）+ 去嵌入 + raw TCP/IP ASCII</text>
+      <text x="159" y="129" text-anchor="middle" font-size="9" fill="#0f766e">直接阻抗调谐 · 参考面平移 · VSWR 测试</text>
+      <text x="330" y="178" text-anchor="middle" font-size="10" fill="#64748b">商用软件同时提供独立服务器（API）与向导式 GUI，支持主流商用 VNA 与自动仪器识别</text>
+      <text x="330" y="200" text-anchor="middle" font-size="10" fill="#64748b">表征产物为 .tunx 文件，可下载到调谐器控制器</text>
+    </svg>
+    <div class="cap">图 3&nbsp;行业通用流程：声明应用 → 自动选方法 → 点密度与布点可视化 → 表征 LUT → 验证闭环</div>
+  </div>
+</section>
+
+<!-- ============ 4 ============ -->
+<section id="s4">
+  <h2>4. 对照映射表</h2>
+  <table>
+    <thead><tr>
+      <th>方法学要素</th>
+      <th><span class="bf">行业通用</span></th>
+      <th><span class="bm">行业通用</span></th>
+      <th>TunerLab 现状</th><th>状态</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td>布点依据</td>
+        <td>Smith 图上尽量等间距</td>
+        <td>Smith 图上尽量均匀分布</td>
+        <td><b>机械坐标笛卡尔积</b>（<code class="mono">x × z^probes</code>）</td>
+        <td class="gap-mark">差异</td>
+      </tr>
+      <tr>
+        <td>点数与扩展性</td>
+        <td>95 / 181 / 361 / 385（固定几档）</td>
+        <td>300~3000（用户定义）</td>
+        <td>随探针数幂次增长（3 探针默认 576）</td>
+        <td class="gap-mark">需重构</td>
+      </tr>
+      <tr>
+        <td>密度分级 / 布点可视化</td>
+        <td>（点数分档）</td>
+        <td>Low/Med/High + Magnitude/Phase 间距指标 + Smith 图 Visualize</td>
+        <td>只有 <code class="mono">x_count/z_count</code> 两个整数</td>
+        <td class="gap-mark">缺</td>
+      </tr>
+      <tr>
+        <td>插值算法</td>
+        <td>9 点网格 + 二阶 Lagrange（X=相位、Y=幅度解耦）</td>
+        <td>二维插值（X/Y 位置→阻抗）</td>
+        <td>Delaunay 凸包线性插值 + SLSQP</td>
+        <td class="gap-mark">精度不足</td>
+      </tr>
+      <tr>
+        <td>寻点算法</td>
+        <td>一般搜索 → 梯度搜索（细网格）</td>
+        <td>LUT + 插值直接下发</td>
+        <td>KD 树最近邻 + 局部插值优化</td>
+        <td class="ok-mark">部分具备</td>
+      </tr>
+      <tr>
+        <td>闭环实测寻点</td>
+        <td>梯度搜索依赖细插值网格</td>
+        <td>LUT 在控制器侧闭环</td>
+        <td><b>无</b>（不根据实测反馈调整）</td>
+        <td class="gap-mark">缺</td>
+      </tr>
+      <tr>
+        <td>频率维度</td>
+        <td>逐频率标定（可含 2fo/3fo）</td>
+        <td>频率插值 + 非谐波相关多频 + 谐波</td>
+        <td>网格内多频一次测得，但<b>无频率插值</b></td>
+        <td class="gap-mark">缺</td>
+      </tr>
+      <tr>
+        <td>验证口径</td>
+        <td>调谐器复现性（标定点回访）</td>
+        <td>插值点复测 → 误差矢量 → 门限 → 建议重标定</td>
+        <td>矢量复现性报告 + 标定点复核（<b>缺门限判定与重标定建议</b>）</td>
+        <td class="ok-mark">接近</td>
+      </tr>
+      <tr>
+        <td>参考面 / 去嵌入</td>
+        <td>Setup / Fixture / Probe 分层 .S2P + 自研 TRL</td>
+        <td>组件 .S2P 存 flash，控制器侧去嵌入 + 参考面平移</td>
+        <td>仅支持一个 2×2 <code class="mono">fixture</code> 参数，无 S2P 组件库</td>
+        <td class="gap-mark">缺</td>
+      </tr>
+      <tr>
+        <td>硬件端 LUT / 指令接口</td>
+        <td>tuner control software / FDCS，上传标定到调谐器</td>
+        <td>专利控制器 + raw TCP/IP ASCII</td>
+        <td>PC 端算好后经 Zmotion 指令下发</td>
+        <td class="gap-mark">架构差异</td>
+      </tr>
+      <tr>
+        <td>运动控制器接入</td>
+        <td>自有调谐器控制器</td>
+        <td>自有调谐器控制器</td>
+        <td><b>校准链路运动侧仍是 Mock</b>（实机 Zmotion 未接入）</td>
+        <td class="gap-mark">阻塞</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ 5 ============ -->
+<section id="s5">
+  <h2>5. 差距清单与实现优先级</h2>
+  <table>
+    <thead><tr><th>优先级</th><th>项</th><th>做什么</th><th>对标</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="p0">P0</td>
+        <td>把实机 Zmotion 接入校准链路</td>
+        <td><code class="mono">studio_init_hardware</code> 用 <code class="mono">ZmotionMotionController</code>
+            替换 Mock，并复用运动控制台那套标度自检与急停逻辑</td>
+        <td>——（自有阻塞项）</td>
+      </tr>
+      <tr>
+        <td class="p0">P0</td>
+        <td>Smith 图均匀布点生成器</td>
+        <td>新增 <code class="mono">tuner/pointplan.py</code>：以 Γ 均匀分布为目标生成轴坐标，
+            支持密度档位与布点可视化，取代笛卡尔积</td>
+        <td>均匀布点 + 密度分档</td>
+      </tr>
+      <tr>
+        <td class="p1">P1</td>
+        <td>二阶插值引擎</td>
+        <td>按经典 9 点网格 + 二阶 Lagrange（X=相位 / Y=幅度）实现 S 参数插值</td>
+        <td>通用插值算法</td>
+      </tr>
+      <tr>
+        <td class="p1">P1</td>
+        <td>两段式寻点</td>
+        <td>一般搜索（最近标定点）→ 梯度搜索（细插值网格），
+            目标精度对齐 <b>−60 dB / 0.001</b> 口径</td>
+        <td>通用调谐算法</td>
+      </tr>
+      <tr>
+        <td class="p1">P1</td>
+        <td>验证闭环</td>
+        <td>插值点复测 → 误差矢量 → 门限判定 → 给出"建议重新标定"结论</td>
+        <td>行业通用验证闭环</td>
+      </tr>
+      <tr>
+        <td class="p2">P2</td>
+        <td>频率插值</td>
+        <td>在表征频率之间做 Γ/阻抗插值，支持非谐波相关多频</td>
+        <td>行业通用频率插值</td>
+      </tr>
+      <tr>
+        <td class="p2">P2</td>
+        <td>去嵌入与参考面</td>
+        <td>引入 .S2P 组件库，支持 Setup/Fixture 分层去嵌入与参考面平移</td>
+        <td>夹具校准 + 组件 .S2P 去嵌入</td>
+      </tr>
+      <tr>
+        <td class="p2">P2</td>
+        <td>谐波/多调谐器</td>
+        <td>基波 + 2fo/3fo 同时表征与多调谐器级联</td>
+        <td>两家的谐波调谐器支持</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="note"><b>建议的落地顺序：</b>先做 <b>P0-2（Smith 图均匀布点）</b>——它同时解决
+    "点数爆炸"和"Γ 死区浪费"两个问题，且不改数据结构（仍是 HDF5 的 positions + s）。
+    再做 <b>P1-2（二阶插值）</b> 与 <b>P1-3（两段式寻点）</b>，把调谐精度从当前的"查表最近邻"
+    提升到 −60 dB 量级。</div>
+
+  <h3>5.1 实现状态（2026-11-03 更新）</h3>
+  <table>
+    <thead><tr><th>优先级</th><th>项</th><th>状态</th></tr></thead>
+    <tbody>
+      <tr><td class="p0">P0-2</td><td>Smith 图均匀布点生成器</td>
+          <td class="ok-mark">已实现</td></tr>
+      <tr><td class="p0">P0-1</td><td>实机 Zmotion 接入校准链路</td>
+          <td class="ok-mark">已实现</td></tr>
+      <tr><td class="p1">P1-1</td><td>二阶插值引擎（经典 9 点网格 + 二阶 Lagrange）</td>
+          <td class="ok-mark">已实现</td></tr>
+      <tr><td class="p1">P1-2</td><td>两段式寻点（一般搜索 → 梯度搜索 → 细网格）</td>
+          <td class="ok-mark">已实现</td></tr>
+      <tr><td class="p1">P1-3</td><td>验证闭环（误差矢量 + 门限 + 建议重标定）</td>
+          <td class="ok-mark">已实现</td></tr>
+    </tbody>
+  </table>
+  <p><b>P0-2 已落地的内容：</b>新增 <code class="mono">tuner/pointplan.py</code>，
+    提供 <code class="mono">smith_targets</code>（sunflower Fermat 螺旋默认，rings 等面积环可选；
+    密度档位 Low 95 / Medium 181 / High 361，与通用分档一致）、
+    <code class="mono">MeasuredModel</code>（从实测学习 Γ↔坐标并可反解）、
+    <code class="mono">refine_positions</code>（farthest-point 补点）与 <code class="mono">coverage_report</code>；
+    <code class="mono">CalibrationDatabase.append_positions()</code> 支持把补点原子地并入同一校准库；
+    Web 校准设置页新增预览与细化布点。
+  <p><b>P1-1 / P1-2 已落地的内容：</b>新增 <code class="mono">tuner/interp.py</code>，
+    <code class="mono">TensorInterpolator</code> 逐轴做<b>二阶 Lagrange</b>（幅度轴先、相位轴后，
+    与通用次序一致；2 维即其 9 点邻域，n 维为 3ⁿ 点），
+    <code class="mono">ScatteredInterpolator</code> 对散点做局部二次加权最小二乘；
+    两者都插值<b>四个 S 参数</b>再换算 Γ。<code class="mono">TunerResponseModel.tune()</code>
+    实现一般搜索 → 梯度搜索 → 细网格三阶段并逐阶段报告误差矢量。
+    <code class="mono">GammaSearchEngine</code> 新增 <code class="mono">response_model()</code> 与
+    <code class="mono">tune()</code>；Web 阻抗调谐页可选算法与插值层级策略，并显示阶段误差表。
+    <br><b>实测（Mock 调谐器，63 点网格）：</b>最近邻查表 |ΔΓ| = 1.02e-01（约 −20 dB，
+    正是通用方法所述"无细网格插值"的水平）→ 梯度搜索后 <b>1.54e-08</b>，提升约 7 个数量级。
+    <br><b>实测发现：</b>插值精度主要受<b>相邻层之间的相位跨度</b>支配——网格加密一倍误差降到约 1/4
+    （二阶收敛）。软件据此给出 X 层数建议（<code class="mono">recommended_phase_levels()</code>：
+    360° 相位跨度、20° 步长上限 → 19 层），这是比换算法更有效的旋钮。</p>
+  <p><b>仍待补：</b>无。P1-1 / P1-2 / P1-3 三项均已落地。</p>
+  <p><b>P1-3 已落地的内容：</b>新增 <code class="mono">tuner/tuner_validation.py</code>，
+    按行业通用做法实现闭环：<b>选插值点</b>（张量网格取单元中心；散点取远离实测点的采样）
+    → <b>实测</b>（命令机器到该点、用已校准仪器测 S）→ <b>算误差矢量</b>
+    （|ΔΓ|、幅度分量、相位分量，dB 等价量）→ <b>判定</b>（超容差即建议重标定）。
+    报告还会指出<b>哪一项占主导</b>：幅度主导 → 标定点太稀/探针深度标度；相位主导 → X 相位层数不足。
+    Web「验证报告」页新增对应面板（点数/容差/策略 + 逐点结果表 + 判定结论），
+    后端 <code class="mono">POST /api/studio/validate_interpolation</code> 在工作线程里跑并报告进度。
+    <br><b>实测（Mock 调谐器，63 点网格、4 验证点）：</b>最大 |ΔΓ| = 0.088140（−21.1 dB），
+    判定「建议重新标定」，并指出<b>幅度分量主导</b>（0.0755 vs 相位 0.0033）→ 结论是标定点太稀，
+    而不是标度问题。这个闭环正是把"插值精度"从口号变成可测量指标的东西。</p>
+  <p><b>P0-1 已落地的内容：</b>校准工作台的<b>运动来源</b>可切到<b>实机 Zmotion</b>，
+    复用「通讯设置」那条控制器连接（不二次打开控制器）；行程由操作者显式声明
+    （X/Z 起止与安全 Z），控制器出厂软限位 ±2e8 只作外层保护；
+    <b>标度闸门</b>强制要求每轴 <code class="mono">feedback_scale ≈ 1</code> 才允许初始化——
+    UNITS 差 84 倍时校准网格会让机器实际走 84 倍距离。
+    标度自检现在会给出<b>修正后的 UNITS</b>（<code class="mono">当前 UNITS ÷ 实测比值</code>），
+    可一键写入控制器并保存设置（改写后该轴强制重新回零）。</p>
+</section>
+
+<!-- ============ 6 ============ -->
+<section id="s6">
+  <h2>6. 参考资料</h2>
+  <table>
+    <thead><tr><th>来源</th><th>链接</th></tr></thead>
+    <tbody>
+      <tr><td>通用专利方法公告：《Method for Calibration and Tuning with Impedance Tuners》（均匀布点 + 二阶插值 + 两段搜索 + −60 dB）</td>
+          <td class="src">厂商公开资料</td></tr>
+      <tr><td>通用应用笔记摘录（CCMT 95/181/361/385 点、9 点网格 + 二阶 Lagrange、相位/幅度解耦）</td>
+          <td class="src"><a href="http://www.diva-portal.org/smash/get/diva2:126816/FULLTEXT01.pdf">diva-portal.org/.../FULLTEXT01.pdf</a>（Chalmers 学位论文附录）</td></tr>
+      <tr><td>通用资料：Calibration 页（TRL/SOLT、Setup/Fixture/Probe/In-situ/8-term 分类）</td>
+          <td class="src">厂商公开资料</td></tr>
+      <tr><td>厂商产品简介 PN-52（PMT 160,000 点/频率、≤20 min/频率）</td>
+          <td class="src">PN-52 PDF</td></tr>
+      <tr><td>厂商产品简介 PN-24（Γ 0.82~0.85、-HR 选件 0.904）</td>
+          <td class="src">PN-24 PDF</td></tr>
+      <tr><td>商用表征软件 MAPCON 2024 官方介绍（Load Pull vs DVT、验证闭环、频率插值）</td>
+          <td class="src">商用表征软件 PDF</td></tr>
+      <tr><td>R&amp;S 负载拉取基础讲义（商用软件界面：点密度 Low/Med/High、Point Separation、Magnitude 0.07、Max Phase Step 15、Visualize）</td>
+          <td class="src"><a href="https://www.hitechbv.nl/wp-content/uploads/2023/03/Loadpull-funadamentals_RS-Roadshow.pdf">R&amp;S Roadshow PDF</a></td></tr>
+      <tr><td>自动调谐器数据表（2.4 mm / 1.85 mm）（预标定定义、300~3000 点、二维插值、复现性 −40~−50 dB）</td>
+          <td class="src">厂商公开资料</td></tr>
+      <tr><td>自动调谐器数据表（专利控制器 US 8,823,392、flash LUT、组件 .S2P 去嵌入、raw TCP/IP ASCII）</td>
+          <td class="src">Nano-series PDF</td></tr>
+    </tbody>
+  </table>
+  <p class="src">检索日期 2026-11-02~03。GitHub 上未找到可直接复用的开源调谐器表征实现（检索到的
+  <code class="mono">pysmithchart</code>、<code class="mono">scikit-rf</code> 仅为 Smith 图绘制与网络分析库，
+  可用于绘图与独立数值验证，不含调谐器标定算法）。</p>
+</section>
+
+</div>
+
+<footer>
+  TunerLab 校准参数获取方法对照 · 2026-11-03 · 现状描述均经代码核对（<code class="mono">calibration.py / search.py / database.py / models.py / web/handlers.py</code>）
+</footer>
+</body>
+</html>

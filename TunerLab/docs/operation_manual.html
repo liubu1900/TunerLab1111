@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TunerLab 操作手册 · Web 控制台（图文版）</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#ffffff; --ink:#1f2937; --muted:#64748b;
+    --line:#e2e8f0; --accent:#2563eb; --accent-soft:#eff6ff;
+    --warn:#b45309; --warn-bg:#fffbeb; --ok:#047857; --ok-bg:#ecfdf5;
+    --err:#b91c1c; --err-bg:#fef2f2; --code-bg:#0f172a;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    font-family:"Noto Sans SC",sans-serif;
+    color:var(--ink); background:var(--bg); margin:0; line-height:1.7;
+    font-size:15px;
+  }
+  .num,.mono,code,pre,table td.num,table th{font-family:"Gilroy","Consolas",monospace;}
+  header.top{
+    background:linear-gradient(135deg,#1e3a8a,#2563eb); color:#fff;
+    padding:30px 36px;
+  }
+  header.top h1{margin:0 0 6px; font-size:26px; letter-spacing:.5px;}
+  header.top p{margin:0; opacity:.9; font-size:14px;}
+  .wrap{max-width:1000px; margin:0 auto; padding:24px 28px 60px;}
+  nav.toc{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:18px 22px; margin:24px 0; box-shadow:0 1px 3px rgba(0,0,0,.04);
+  }
+  nav.toc h2{margin:0 0 10px; font-size:16px;}
+  nav.toc ol{margin:0; padding-left:22px; columns:2; column-gap:36px;}
+  nav.toc li{margin:4px 0; break-inside:avoid;}
+  nav.toc a{color:var(--accent); text-decoration:none;}
+  nav.toc a:hover{text-decoration:underline;}
+  section{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:24px 26px; margin:22px 0; box-shadow:0 1px 3px rgba(0,0,0,.04);
+  }
+  section h2{margin:0 0 14px; font-size:21px; border-left:5px solid var(--accent); padding-left:12px;}
+  section h3{margin:22px 0 8px; font-size:17px; color:#0f172a;}
+  section h4{margin:16px 0 6px; font-size:15px; color:#334155;}
+  p{margin:10px 0;}
+  ul,ol{margin:10px 0; padding-left:24px;}
+  li{margin:5px 0;}
+  table{border-collapse:collapse; width:100%; margin:14px 0; font-size:14px;}
+  th,td{border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top;}
+  th{background:var(--accent-soft); color:#0f172a;}
+  code{background:#eef2f7; padding:1px 6px; border-radius:5px; font-size:13px; color:#0f172a;}
+  pre{
+    background:var(--code-bg); color:#e2e8f0; padding:16px 18px; border-radius:10px;
+    overflow:auto; font-size:13px; line-height:1.55;
+  }
+  pre .c{color:#7dd3fc;} pre .p{color:#fca5a5;} pre .g{color:#86efac;}
+  .figure{margin:18px 0; text-align:center;}
+  .figure svg{width:100%; max-width:640px; height:auto; background:#fff;
+    border:1px solid var(--line); border-radius:10px;}
+  .cap{font-size:13px; color:var(--muted); margin-top:6px;}
+  .note,.tip,.warn,.danger{
+    border-radius:10px; padding:12px 16px; margin:14px 0; font-size:14px;
+    border:1px solid transparent;
+  }
+  .note{background:var(--accent-soft); border-color:#bfdbfe; color:#1e40af;}
+  .tip{background:var(--ok-bg); border-color:#a7f3d0; color:#065f46;}
+  .warn{background:var(--warn-bg); border-color:#fde68a; color:#92400e;}
+  .danger{background:var(--err-bg); border-color:#fecaca; color:#991b1b;}
+  .badge{display:inline-block; background:var(--accent); color:#fff; border-radius:20px;
+    padding:1px 10px; font-size:12px; margin-right:6px;}
+  .kbd{background:#e2e8f0; border-radius:5px; padding:1px 7px; font-family:"Gilroy","Consolas",monospace; font-size:13px;}
+  footer{text-align:center; color:var(--muted); font-size:13px; padding:20px;}
+  .btnrow{display:flex; gap:8px; flex-wrap:wrap; margin:10px 0;}
+  .pill{background:#eef2f7; border:1px solid var(--line); border-radius:6px; padding:4px 10px; font-size:13px;}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>TunerLab 操作手册 · Web 控制台（图文版）</h1>
+  <p>版本 v0.1.0 &nbsp;|&nbsp; 生成 2026-11-03 &nbsp;|&nbsp; 适用 <code class="mono">python -m tuner.web</code></p>
+</header>
+
+<div class="wrap">
+
+<nav class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#s0">文档说明</a></li>
+    <li><a href="#s1">系统概述与架构</a></li>
+    <li><a href="#s2">环境准备与启动</a></li>
+    <li><a href="#s3">网络连接准备</a></li>
+    <li><a href="#s4">运动控制台（3 轴 / 4 轴型号）</a>
+      <ul>
+        <li><a href="#s42">tuner 型号切换</a></li>
+        <li><a href="#s43">真实 / 虚拟模式</a></li>
+        <li><a href="#s46">每轴状态与控制器报错</a></li>
+        <li><a href="#s47">操作日志</a></li>
+      </ul>
+    </li>
+    <li><a href="#s5">矢网控制 VNA（TCP/IP）</a></li>
+    <li><a href="#s6">校准工作台</a>
+      <ul>
+        <li><a href="#s63">Smith 图均匀布点</a></li>
+        <li><a href="#s64">实机校准工作流</a></li>
+        <li><a href="#s65">插值调谐（二阶 Lagrange + 两段式寻点）</a></li>
+        <li><a href="#s66">插值验证闭环</a></li>
+      </ul>
+    </li>
+    <li><a href="#s7">安全须知</a></li>
+    <li><a href="#s8">常见问题 FAQ</a></li>
+    <li><a href="#s9">附录：接口速查</a></li>
+  </ol>
+</nav>
+
+<!-- ============ 0 ============ -->
+<section id="s0">
+  <h2>0. 文档说明</h2>
+  <p>本手册面向 <b>TunerLab Web 控制台</b>（命令 <code class="mono">python -m tuner.web</code>），即把原来的 PySide6
+  桌面界面改造成的<b>浏览器界面</b>。所有硬件驱动与校准逻辑均复用原有代码，仅表现层换成了网页。</p>
+  <ul>
+    <li>硬件驱动（Zmotion 四轴、多厂商矢网）运行在<b>连接着仪器的 Windows 主机</b>上的本地 Web 服务里；浏览器通过
+      <code class="mono">http://127.0.0.1:8000</code> 访问（同机或局域网内其他设备均可）。</li>
+    <li>本手册中的图均为<b>界面示意图</b>（SVG 绘制），用于说明布局与流程，实际页面以软件运行为准。</li>
+    <li>文档依据：<code class="mono">tuner/vna_drivers.py</code>、<code class="mono">tuner/web/*</code>、<code class="mono">docs/VNA.md</code>、<code class="mono">docs/HARDWARE.md</code>。</li>
+  </ul>
+</section>
+
+<!-- ============ 1 ============ -->
+<section id="s1">
+  <h2>1. 系统概述与架构</h2>
+  <p>TunerLab 采用<b>本地 Web 服务 + 浏览器</b>的三层结构：</p>
+  <div class="figure">
+    <svg viewBox="0 0 620 350" role="img" aria-label="系统架构图">
+      <defs>
+        <marker id="ar" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#475569"/>
+        </marker>
+      </defs>
+      <!-- browser -->
+      <rect x="24" y="24" width="150" height="74" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+      <text x="99" y="52" text-anchor="middle" font-size="15" font-weight="700" fill="#1e3a8a">浏览器</text>
+      <text x="99" y="74" text-anchor="middle" font-size="11" fill="#334155">Chrome / Edge</text>
+      <text x="99" y="90" text-anchor="middle" font-family="Consolas,monospace" font-size="10" fill="#475569">localhost:8000</text>
+      <!-- web server -->
+      <rect x="240" y="14" width="200" height="150" rx="12" fill="#ffffff" stroke="#2563eb" stroke-width="2"/>
+      <text x="340" y="40" text-anchor="middle" font-size="15" font-weight="700" fill="#1e3a8a">Web 服务（Windows 主机）</text>
+      <text x="340" y="64" text-anchor="middle" font-size="12" fill="#334155">Python · tuner.web</text>
+      <rect x="262" y="78" width="156" height="30" rx="6" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="340" y="98" text-anchor="middle" font-size="11" fill="#334155">Zmotion DLL（ctypes）</text>
+      <rect x="262" y="116" width="156" height="30" rx="6" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="340" y="136" text-anchor="middle" font-size="11" fill="#334155">SCPI socket 客户端</text>
+      <!-- arrows browser->server -->
+      <line x1="174" y1="61" x2="238" y2="61" stroke="#475569" stroke-width="2" marker-end="url(#ar)"/>
+      <!-- zmotion -->
+      <rect x="24" y="250" width="220" height="84" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
+      <text x="134" y="278" text-anchor="middle" font-size="14" font-weight="700" fill="#9a3412">Zmotion 运动控制器</text>
+      <text x="134" y="298" text-anchor="middle" font-family="Consolas,monospace" font-size="11" fill="#7c2d12">192.168.0.11</text>
+      <text x="134" y="316" text-anchor="middle" font-size="11" fill="#7c2d12">四轴 X / Z1 / Z2 / Z3（UDP 广播发现）</text>
+      <!-- vna -->
+      <rect x="370" y="250" width="220" height="84" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="2"/>
+      <text x="480" y="278" text-anchor="middle" font-size="14" font-weight="700" fill="#065f46">矢量网络分析仪 VNA</text>
+      <text x="480" y="298" text-anchor="middle" font-family="Consolas,monospace" font-size="11" fill="#065f46">192.168.0.50:5025</text>
+      <text x="480" y="316" text-anchor="middle" font-size="11" fill="#065f46">TCP/IP SCPI · 五家厂商</text>
+      <!-- arrows server->hw -->
+      <line x1="290" y1="164" x2="150" y2="248" stroke="#475569" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="392" y1="164" x2="470" y2="248" stroke="#475569" stroke-width="2" marker-end="url(#ar)"/>
+      <text x="200" y="210" text-anchor="middle" font-size="10" fill="#64748b">UDP 广播</text>
+      <text x="450" y="210" text-anchor="middle" font-size="10" fill="#64748b">TCP 5025</text>
+    </svg>
+    <div class="cap">图 1&nbsp; 系统架构：浏览器 → 本地 Web 服务 → 仪器（Zmotion 控制器 + 矢量网络分析仪）</div>
+  </div>
+  <table>
+    <thead><tr><th>层</th><th>内容</th><th>是否复用</th></tr></thead>
+    <tbody>
+      <tr><td>硬件驱动</td><td><code class="mono">zmotion.py</code>（四轴）、<code class="mono">vna_drivers.py</code>（五家矢网）</td><td>原样复用，不动</td></tr>
+      <tr><td>运动 / 校准逻辑</td><td><code class="mono">motion</code>、<code class="mono">calibration</code>、<code class="mono">search</code>、<code class="mono">rf</code>、<code class="mono">database</code></td><td>原样复用，不动</td></tr>
+      <tr><td>表现层</td><td>PySide6 桌面 UI → 浏览器 HTML/JS（<code class="mono">tuner/web/static</code>）</td><td>整层替换（并存）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ 2 ============ -->
+<section id="s2">
+  <h2>2. 环境准备与启动</h2>
+  <h3>2.1 运行环境</h3>
+  <ul>
+    <li>操作系统：<b>Windows</b>（Zmotion DLL 仅 Windows 可用；Web 服务须跑在连着控制器的机器上）。</li>
+    <li>Python：3.13 或 3.14 均可；Web 控制台<b>不需要 PySide6</b>（桌面版才需要），仅用标准库。</li>
+    <li>浏览器：任意现代浏览器（Chrome / Edge / Firefox）。</li>
+    <li>依赖：<code class="mono">numpy</code>、<code class="mono">scipy</code>、<code class="mono">h5py</code> 用于校准数学；矢网与 Web 服务本身零额外依赖。</li>
+  </ul>
+
+  <h3>2.2 启动方式一：双击 <code class="mono">run.bat</code>（推荐）</h3>
+  <p>直接双击工程根目录的 <code class="mono">run.bat</code>，会弹出菜单：</p>
+  <pre><span class="c"># 菜单示例</span>
+  TunerLab 启动菜单
+  <span class="g">1</span>  运动控制台      (tuner.app  - 实机四轴)
+  <span class="g">2</span>  校准工作台      (tuner.ui   - Mock 数据)
+  <span class="g">3</span>  Web 控制台      (tuner.web  - 浏览器)
+  <span class="g">0</span>  退出
+  请选择 [1/2/3/0]: <span class="p">3</span></pre>
+  <p>输入 <span class="kbd">3</span> 回车，程序自动启动 Web 服务并打开浏览器到
+    <code class="mono">http://127.0.0.1:8000</code>。<span class="badge">说明</span><code class="mono">run.bat</code>
+    用 <code class="mono">cd /d "%~dp0"</code> 自动切到脚本目录，无需手敲中文路径。</p>
+
+  <h3>2.3 启动方式二：命令行</h3>
+  <pre><span class="c"># 进入工程根目录后执行</span>
+cd "H:\实验室资源\2026年\139. Eoulu Tuner校准软件编写-20261013\TunerLab_v0.1.0\TunerLab"
+python -m tuner.web
+<span class="c"># 可选参数：--host 0.0.0.0 --port 8000 --no-browser</span></pre>
+  <div class="tip">局域网内其他电脑 / 手机访问时，把 <code class="mono">--host</code> 设为 <code class="mono">0.0.0.0</code>，
+    并用该 Windows 主机的局域网 IP（如 <code class="mono">http://192.168.0.10:8000</code>）打开。注意：仍只有那台 Windows 主机真正连着仪器。</div>
+
+  <h3>2.4 启动后界面</h3>
+  <p>左侧为导航栏，分两组：</p>
+  <div class="btnrow">
+    <span class="pill">运动控制台：通讯设置 / 轴移动控制 / 轴参数设定</span>
+    <span class="pill">仪器控制：矢网控制 (VNA)</span>
+    <span class="pill">校准工作台：Dashboard / 校准设置 / 校准运行 / 数据库 / Smith 图 / 阻抗调谐 / 验证报告</span>
+  </div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section id="s3">
+  <h2>3. 网络连接准备</h2>
+  <p>两种仪器走不同的网络机制，务必分别确认：</p>
+  <div class="figure">
+    <svg viewBox="0 0 620 300" role="img" aria-label="网络连接示意">
+      <defs>
+        <marker id="ar2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#475569"/>
+        </marker>
+      </defs>
+      <!-- subnet cloud -->
+      <ellipse cx="310" cy="40" rx="250" ry="34" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="6 4"/>
+      <text x="310" y="45" text-anchor="middle" font-size="13" fill="#334155">同一子网 192.168.0.x（互相可 ping 通）</text>
+      <!-- host -->
+      <rect x="40" y="120" width="200" height="120" rx="12" fill="#ffffff" stroke="#2563eb" stroke-width="2"/>
+      <text x="140" y="150" text-anchor="middle" font-size="14" font-weight="700" fill="#1e3a8a">Windows 主机</text>
+      <text x="140" y="172" text-anchor="middle" font-size="11" fill="#334155">运行 Web 服务</text>
+      <text x="140" y="190" text-anchor="middle" font-size="11" fill="#334155">（连着仪器）</text>
+      <text x="140" y="212" text-anchor="middle" font-family="Consolas,monospace" font-size="10" fill="#475569">127.0.0.1:8000</text>
+      <!-- zmotion -->
+      <rect x="360" y="120" width="200" height="120" rx="12" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
+      <text x="460" y="150" text-anchor="middle" font-size="14" font-weight="700" fill="#9a3412">Zmotion 控制器</text>
+      <text x="460" y="176" text-anchor="middle" font-family="Consolas,monospace" font-size="11" fill="#7c2d12">192.168.0.11</text>
+      <text x="460" y="198" text-anchor="middle" font-size="11" fill="#7c2d12">UDP 广播发现</text>
+      <text x="460" y="220" text-anchor="middle" font-size="11" fill="#7c2d12">（TCP 端口扫描看不到）</text>
+      <!-- lines -->
+      <line x1="200" y1="180" x2="358" y2="160" stroke="#475569" stroke-width="2" marker-end="url(#ar2)"/>
+      <text x="285" y="165" text-anchor="middle" font-size="10" fill="#64748b">UDP 广播</text>
+      <!-- firewall note -->
+      <rect x="40" y="262" width="520" height="30" rx="8" fill="#fef2f2" stroke="#fecaca"/>
+      <text x="300" y="282" text-anchor="middle" font-size="12" fill="#991b1b">防火墙放行：VNA 需 TCP 5025；Zmotion 同网段即可（UDP 广播）</text>
+    </svg>
+    <div class="cap">图 2&nbsp; 网络连接：主机与两台仪器同网段；VNA 走 TCP 5025，Zmotion 走 UDP 广播</div>
+  </div>
+  <table>
+    <thead><tr><th>仪器</th><th>协议 / 端口</th><th>连通性验证</th></tr></thead>
+    <tbody>
+      <tr><td>Zmotion 控制器</td><td>UDP 广播（<code class="mono">ZAux_OpenEth</code> 自动发现）</td><td>软件「通讯设置」页点「连接」；TCP 端口扫描无效</td></tr>
+      <tr><td>矢量网络分析仪</td><td>TCP <span class="num">5025</span>（SCPI）</td><td><code class="mono">ping 192.168.0.50</code> 与
+        <code class="mono">Test-NetConnection -Port 5025 192.168.0.50</code>（PowerShell）</td></tr>
+    </tbody>
+  </table>
+  <div class="warn"><b>连不上先查网段与防火墙，而不是查端口：</b>Zmotion 用 UDP 广播发现，TCP 端口扫描看不到它；
+    VNA 是标准 TCP 端口，可用上面命令先验端口是否通，排错比控制器容易。</div>
+</section>
+
+<!-- ============ 4 ============ -->
+<section id="s4">
+  <h2>4. 运动控制台（3 轴 / 4 轴 tuner 型号）</h2>
+  <p>运动控制台含三个页面，对应你最初的需求：通讯设置、移动控制、每轴参数设定。全部复用真实 Zmotion 驱动。</p>
+
+  <div class="figure">
+    <svg viewBox="0 0 620 380" role="img" aria-label="运动控制台界面示意图">
+      <!-- card1 comm -->
+      <rect x="20" y="14" width="580" height="98" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+      <text x="34" y="36" font-size="14" font-weight="700" fill="#1e3a8a">① 通讯设置</text>
+      <rect x="34" y="48" width="150" height="26" rx="5" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="44" y="66" font-size="11" fill="#334155">IP 192.168.0.11</text>
+      <rect x="200" y="48" width="70" height="26" rx="5" fill="#2563eb"/>
+      <text x="235" y="66" text-anchor="middle" font-size="12" fill="#fff">连接</text>
+      <rect x="280" y="48" width="70" height="26" rx="5" fill="#e2e8f0"/>
+      <text x="315" y="66" text-anchor="middle" font-size="12" fill="#334155">断开</text>
+      <rect x="360" y="48" width="70" height="26" rx="5" fill="#e2e8f0"/>
+      <text x="395" y="66" text-anchor="middle" font-size="12" fill="#334155">搜索</text>
+      <text x="34" y="92" font-size="11" fill="#64748b">固件 2.9600 · SDK 路径 · 设置文件（JSON，自动保存/导入导出）</text>
+      <!-- card2 move -->
+      <rect x="20" y="124" width="580" height="150" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+      <text x="34" y="146" font-size="14" font-weight="700" fill="#1e3a8a">② 轴移动控制</text>
+      <rect x="34" y="156" width="110" height="26" rx="5" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="44" y="174" font-size="11" fill="#334155">选轴 [ X ▾ ]</text>
+      <rect x="160" y="156" width="58" height="26" rx="5" fill="#e2e8f0"/>
+      <text x="189" y="174" text-anchor="middle" font-size="11" fill="#334155">点动+</text>
+      <rect x="224" y="156" width="58" height="26" rx="5" fill="#e2e8f0"/>
+      <text x="253" y="174" text-anchor="middle" font-size="11" fill="#334155">点动−</text>
+      <rect x="288" y="156" width="78" height="26" rx="5" fill="#e2e8f0"/>
+      <text x="327" y="174" text-anchor="middle" font-size="11" fill="#334155">绝对定位</text>
+      <rect x="372" y="156" width="58" height="26" rx="5" fill="#e2e8f0"/>
+      <text x="401" y="174" text-anchor="middle" font-size="11" fill="#334155">回零</text>
+      <rect x="436" y="156" width="58" height="26" rx="5" fill="#e2e8f0"/>
+      <text x="465" y="174" text-anchor="middle" font-size="11" fill="#334155">停止</text>
+      <rect x="34" y="192" width="92" height="26" rx="5" fill="#f59e0b"/>
+      <text x="80" y="210" text-anchor="middle" font-size="12" fill="#fff">标度自检</text>
+      <rect x="134" y="192" width="70" height="26" rx="5" fill="#dc2626"/>
+      <text x="169" y="210" text-anchor="middle" font-size="12" fill="#fff">急停</text>
+      <rect x="212" y="192" width="70" height="26" rx="5" fill="#16a34a"/>
+      <text x="247" y="210" text-anchor="middle" font-size="12" fill="#fff">复位</text>
+      <text x="34" y="242" font-size="11" fill="#64748b">实时状态每 300 ms 刷新：位置 / 速度 / 回零状态 / 报警</text>
+      <!-- card3 params -->
+      <rect x="20" y="286" width="580" height="80" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+      <text x="34" y="308" font-size="14" font-weight="700" fill="#1e3a8a">③ 轴参数设定</text>
+      <text x="34" y="332" font-size="11" fill="#334155">ATYPE UNITS SPEED ACCEL DECEL CREEP JOG_SPEED DATUM_IN …</text>
+      <rect x="430" y="318" width="70" height="26" rx="5" fill="#2563eb"/>
+      <text x="465" y="336" text-anchor="middle" font-size="12" fill="#fff">保存</text>
+      <rect x="508" y="318" width="70" height="26" rx="5" fill="#e2e8f0"/>
+      <text x="543" y="336" text-anchor="middle" font-size="12" fill="#334155">读取</text>
+    </svg>
+    <div class="cap">图 3&nbsp; 运动控制台三页：① 通讯设置 ② 轴移动控制（含标度自检 / 急停 / 复位）③ 轴参数设定</div>
+  </div>
+
+  <h3>4.1 通讯设置</h3>
+  <ul>
+    <li>填控制器 IP（默认 <code class="mono">192.168.0.11</code>），点 <b>连接</b>（失败自动重试 3 次）；可点 <b>搜索</b> 触发 UDP 广播发现。</li>
+    <li>连接后会显示固件版本、SDK 路径；通讯参数（IP 等）以 <b>JSON 文件</b>持久化，下次启动自动载入，并支持导入/导出。</li>
+    <li><b>tuner 型号</b>：选择本机是 3 轴还是 4 轴机型（见 4.2）。</li>
+  </ul>
+
+  <h3 id="s42">4.2 tuner 型号（3 轴 / 4 轴）</h3>
+  <p>软件同时支持两种 tuner 型号，在<b>通讯设置 › tuner 型号</b> 下拉切换，选择结果
+    <b>持久化</b>在设置文件里，下次启动自动沿用。</p>
+  <table>
+    <thead><tr><th>型号</th><th>轴</th><th>探针数</th><th>校准网格点数</th></tr></thead>
+    <tbody>
+      <tr><td><b>3 轴</b></td><td class="mono">X / Z1 / Z2</td><td>2</td><td class="mono">x_count × z_count²</td></tr>
+      <tr><td><b>4 轴</b></td><td class="mono">X / Z1 / Z2 / Z3</td><td>3</td><td class="mono">x_count × z_count³</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><b>关键约定：控制器的物理轴序号固定不变</b>（X=0、Z1=1、Z2=2、Z3=3）。
+    切换型号只改变"软件命令哪几根轴"，<b>不影响已保存的校准数据与轴参数</b>——
+    两种型号间可以直接切换，改回去也不用重新标定。</div>
+  <ul>
+    <li>切换后，<b>轴移动控制</b>与<b>轴参数设定</b>的表格行数、轴下拉自动增减（3 轴机型不再出现 Z3）。</li>
+    <li>离开型号的轴，其参数<b>仍然保留</b>在设置文件里，切回型号即可复用（含已修正的 UNITS）。</li>
+    <li>实机校准时<b>探针数由型号决定</b>，不能手工选成与机器不符的探针数——否则标定网格会
+      去访问不存在的轴。</li>
+    <li>3 轴机型的网格点数是 4 轴的 <code class="mono">1/z_count</code> 倍（z_count=4 时约 1/4），
+      标定更快，但覆盖度也更低；可用 6.3 的 Smith 图细化布点补齐。</li>
+  </ul>
+
+  <h3 id="s43">4.3 真实 / 虚拟模式</h3>
+  <p>运动控制台可在<b>真实控制器</b>（Zmotion 运动控制卡）与<b>虚拟控制器</b>（内置模拟器）
+    之间切换。选择在<b>通讯设置 › 控制器模式</b>里完成，并<b>持久化</b>到设置文件。</p>
+  <table>
+    <thead><tr><th>项目</th><th>真实模式</th><th>虚拟模式</th></tr></thead>
+    <tbody>
+      <tr><td>需要硬件</td><td>是</td><td><b>否</b></td></tr>
+      <tr><td>通讯方式</td><td>UDP 广播发现实机</td><td>无（<code class="mono">virtual://zmotion</code>）</td></tr>
+      <tr><td>初始状态</td><td>读取实机位置与回零状态</td><td><b>自动回零并生成初始位置</b></td></tr>
+      <tr><td>标度自检</td><td>实测编码器比例</td><td>默认一致（可注入故障模拟偏差）</td></tr>
+      <tr><td>故障演练</td><td>不可</td><td><b>可注入状态位</b></td></tr>
+      <tr><td>虚拟校准数据</td><td>不可</td><td><b>一键生成</b>合成校准库</td></tr>
+    </tbody>
+  </table>
+  <div class="warn"><b>切换模式会断开当前连接</b>——两种后端没有共同点，
+    半连接状态最危险。切到虚拟模式时 IP 输入框自动置灰（虚拟模式不需要 IP）。</div>
+
+  <h4>虚拟模式的两项演练工具</h4>
+  <ul>
+    <li><b>虚拟故障演练</b>（仅虚拟模式可见）：向指定轴注入状态位，用来练习读取与判读诊断页。
+      默认 <code class="mono">bit22</code> = 告警信号输入，正是实机 Z2 曾出现的那一位
+      （状态字 <code class="mono">4194304</code>）。注入后该轴在状态表中<b>标红</b>。</li>
+    <li><b>生成虚拟校准数据</b>（仅虚拟模式可见）：一键生成含各点位 S 参数的<b>合成校准库</b>，
+      结构与实测库完全一致（含 provenance 标记），可直接用于 Smith 图、阻抗调谐与插值验证。
+      点数 = X 层数 × Z 层数^探针数。</li>
+  </ul>
+
+  <h3>4.4 轴移动控制</h3>
+  <ul>
+    <li>选轴后可用 <b>点动 +/−</b>、<b>绝对定位</b>、<b>回零</b>、<b>停止</b>。</li>
+    <li><b>标度自检</b>（关键）：软件对当前轴做小幅往返，用编码器反馈实测"指令位移 / 反馈位移"的真实比例，存入
+      <code class="mono">feedback_scale</code>。<b>标度不匹配时软件默认拒绝该轴运动</b>（安全行为）。首次实机务必先点它。</li>
+    <li><b>采纳并写入修正后的 UNITS</b>：标度不一致时，自检结果会给出修正值
+      <code class="mono">UNITS_修正 = 当前 UNITS ÷ 实测比值</code>（例如 UNITS=10000、比值 84 → 约 119）。
+      点该按钮即把修正值<b>写入控制器并保存到设置文件</b>，同时把该轴的 <code class="mono">feedback_scale</code> 归 1。
+      <br><b>注意</b>：<code class="mono">UNITS</code> 决定"一个指令单位等于多少毫米"，改写后坐标系随之改变，
+      <b>该轴必须重新回零</b>。软件会自动把该轴标记为未回零。</li>
+    <li><b>急停 / 复位</b>：软件急停锁存，可软件复位；但<b>不能替代硬件急停 / 限位</b>。</li>
+    <li>状态区每 300 ms 刷新位置、速度、回零状态、报警位。</li>
+  </ul>
+
+  <h3>4.5 轴参数设定</h3>
+  <ul>
+    <li>可读取 / 写入每轴 <code class="mono">ATYPE / UNITS / SPEED / ACCEL / DECEL / CREEP / JOG_SPEED / DATUM_IN</code> 等，以及实测的 <code class="mono">feedback_scale</code>。</li>
+    <li>点 <b>保存</b> 写入设置文件，供后续启动调用。</li>
+  </ul>
+
+  <h3 id="s46">4.6 每轴状态与控制器报错</h3>
+  <p>「轴移动控制」页的状态表每 300 ms 刷新一次，除位置外还给出<b>控制器自己的报错</b>：</p>
+  <table>
+    <thead><tr><th>列</th><th>来源</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr><td><code class="mono">AXISSTATUS</code></td><td>控制器轴状态字</td><td>位域，置位即表示该轴有对应状态</td></tr>
+      <tr><td>状态说明</td><td>软件解码</td><td>把状态位翻译成中文，例如「告警信号输入 (bit22)」</td></tr>
+      <tr><td>停止原因</td><td><code class="mono">AXIS_STOPREASON</code></td><td>锁存的最后一次停止原因，鼠标悬停可见十六进制原值</td></tr>
+    </tbody>
+  </table>
+  <p>厂商文档中常用的状态位（软件已内置完整表，未定义位也会显式报出）：</p>
+  <table>
+    <thead><tr><th>位</th><th>打印值</th><th>说明</th><th>性质</th></tr></thead>
+    <tbody>
+      <tr><td class="num">bit3</td><td class="num">8</td><td>远程驱动器报错</td><td>故障</td></tr>
+      <tr><td class="num">bit4 / bit5</td><td class="num">16 / 32</td><td>正向 / 反向硬限位触发</td><td>故障</td></tr>
+      <tr><td class="num">bit6</td><td class="num">64</td><td>找原点中</td><td>活动</td></tr>
+      <tr><td class="num">bit8</td><td class="num">256</td><td>随动误差超限出错</td><td>故障</td></tr>
+      <tr><td class="num">bit9 / bit10</td><td class="num">512 / 1024</td><td>超过正向 / 负向软限位</td><td>故障</td></tr>
+      <tr><td class="num">bit11</td><td class="num">2048</td><td>CANCEL 执行中</td><td>活动</td></tr>
+      <tr><td class="num">bit22</td><td class="num">4194304</td><td><b>告警信号输入</b></td><td>故障</td></tr>
+      <tr><td class="num">bit23</td><td class="num">8388608</td><td>轴进入了暂停状态</td><td>故障</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><b>两个按钮：</b>
+    <br>· <b>读取控制器错误码</b>：通过 Basic 通道向控制器索取它自己的错误号并翻译成文字，
+      同时汇总哪些轴处于报警状态。该查询<b>只在点击时发出</b>，不进入 300 ms 轮询——
+      因为一条不被固件支持的指令本身就会在控制器上产生错误，反而污染状态。
+    <br>· <b>刷新详细状态</b>：额外读取每轴使能状态与实测速度。
+  </div>
+  <div class="warn">参考：此前 Z2 的 <code class="mono">AXISSTATUS=4194304</code> 即 <b>bit22 告警信号输入</b>，
+    <code class="mono">STOP_REASON=4196352</code> = bit22 + bit11（CANCEL 执行中）。该故障已由现场修复，
+    修复后本表应显示「正常」。</div>
+
+  <h3 id="s47">4.7 操作日志</h3>
+  <p>左侧导航 <b>运行记录 → 操作日志</b>。记录所有操作，每条含<b>时间、分类、动作、详情、级别</b>：</p>
+  <ul>
+    <li>分类：通讯 / 运动 / 回零 / 参数 / 急停 / 标度 / 矢网 / 校准 / 系统</li>
+    <li>级别：<code class="mono">info</code> / <code class="mono">warn</code> / <code class="mono">error</code>（错误行红底、警告行黄底）</li>
+    <li>动作内容：绝对定位目标、点动增量、回零状态码、标度自检比值、急停、参数写入、校准布点与覆盖度等</li>
+    <li>失败的操作会连同异常类型与消息一起记录（如 <code class="mono">MotionError: ...</code>）</li>
+  </ul>
+  <p>内存保留最近 <b>2000</b> 条；支持按分类/级别过滤、清空、导出 JSON。桌面版运动控制台也有同名页面（第 4 页）。</p>
+  <p class="cap">日志是排查"到底下发了什么指令、控制器回了什么"的依据：实机异常时先看这一页。</p>
+</section>
+
+<!-- ============ 5 ============ -->
+<section id="s5">
+  <h2>5. 矢网控制 VNA（TCP/IP）</h2>
+  <p>所有矢量网络分析仪通过 <b>TCP/IP SCPI（默认端口 5025）</b> 直接控制，<b>无需安装 VISA 运行时</b>。
+    详细各品牌开启步骤见 <code class="mono">docs/VNA.md</code>。</p>
+
+  <h3>5.1 支持的厂商</h3>
+  <table>
+    <thead><tr><th>下拉项</th><th>代表机型</th><th>命令差异</th></tr></thead>
+    <tbody>
+      <tr><td>罗德 R&amp;S</td><td>ZNB / ZVA / ZND</td><td>测量定义 <code class="mono">:CALC:PAR:SDEF</code>，取数 <code class="mono">SDAT</code></td></tr>
+      <tr><td>Keysight E5071C</td><td>ENA 系（E5071C/E5080）</td><td><code class="mono">:CALC:PAR:DEF</code>，取数 <code class="mono">SDATA</code></td></tr>
+      <tr><td>Keysight N5247 PNA-X</td><td>PNA / PNA-X（N5247A 等）</td><td>功率 <code class="mono">:SOUR:POW:LEV:IMM:AMPL</code></td></tr>
+      <tr><td>思仪 Ceyear</td><td>AV3672 系列</td><td>ENA 风格 SCPI</td></tr>
+      <tr><td>安立 Anritsu</td><td>VectorStar / ShockLine</td><td>ENA 风格 SCPI</td></tr>
+      <tr><td>自动识别</td><td>—</td><td>读 <code class="mono">*IDN?</code> 自动判断（<b>推荐</b>）</td></tr>
+    </tbody>
+  </table>
+
+  <h3>5.2 操作步骤（「矢网控制 VNA」页）</h3>
+  <ol>
+    <li>左侧导航 → <b>仪器控制 → 矢网控制 (VNA)</b>。</li>
+    <li>填 <b>厂商</b>（建议"自动识别"）、<b>IP</b>、<b>端口</b>（默认 <span class="num">5025</span>）、<b>超时</b>（默认 10000 ms）、扫频起止 / 频点、功率、中频带宽。</li>
+    <li>点 <b>连接并配置</b> → 建 socket、读 <code class="mono">*IDN?</code>、自动识别厂商、下发扫频/功率/中频。</li>
+    <li>看"连接状态"：<b>状态=已连接</b>、<b>识别厂商</b>、<b>IDN</b>、<b>最近错误</b>。若 IDN 正常但厂商识别为空，手选对应厂商后重连。</li>
+    <li>点 <b>单次扫描并读取</b> → 触发一次扫描、回读 S11~S22，页面绘制幅频曲线并列出数据表（单位 dB）。</li>
+  </ol>
+
+  <div class="figure">
+    <svg viewBox="0 0 620 330" role="img" aria-label="VNA 控制面板示意图">
+      <!-- conn card -->
+      <rect x="20" y="14" width="300" height="180" rx="10" fill="#ffffff" stroke="#059669" stroke-width="1.5"/>
+      <text x="34" y="36" font-size="14" font-weight="700" fill="#065f46">连接</text>
+      <rect x="34" y="48" width="120" height="24" rx="5" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="44" y="65" font-size="10" fill="#334155">厂商 [自动识别▾]</text>
+      <rect x="164" y="48" width="130" height="24" rx="5" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="174" y="65" font-size="10" fill="#334155">IP 192.168.0.50</text>
+      <rect x="34" y="82" width="60" height="24" rx="5" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="44" y="99" font-size="10" fill="#334155">端口 5025</text>
+      <rect x="104" y="82" width="80" height="24" rx="5" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="114" y="99" font-size="10" fill="#334155">起点 1e9</text>
+      <rect x="194" y="82" width="80" height="24" rx="5" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="204" y="99" font-size="10" fill="#334155">止 20e9</text>
+      <rect x="34" y="118" width="80" height="24" rx="5" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="44" y="135" font-size="10" fill="#334155">功率 -10</text>
+      <rect x="124" y="118" width="80" height="24" rx="5" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="134" y="135" font-size="10" fill="#334155">IFBW 1000</text>
+      <rect x="34" y="152" width="110" height="28" rx="6" fill="#059669"/>
+      <text x="89" y="171" text-anchor="middle" font-size="12" fill="#fff">连接并配置</text>
+      <rect x="154" y="152" width="70" height="28" rx="6" fill="#e2e8f0"/>
+      <text x="189" y="171" text-anchor="middle" font-size="12" fill="#334155">断开</text>
+      <!-- status card -->
+      <rect x="336" y="14" width="264" height="180" rx="10" fill="#ffffff" stroke="#059669" stroke-width="1.5"/>
+      <text x="350" y="36" font-size="14" font-weight="700" fill="#065f46">连接状态</text>
+      <line x1="350" y1="46" x2="586" y2="46" stroke="#e2e8f0"/>
+      <text x="350" y="68" font-size="11" fill="#334155">状态：</text><text x="420" y="68" font-size="11" font-weight="700" fill="#047857">已连接</text>
+      <text x="350" y="90" font-size="11" fill="#334155">识别厂商：</text><text x="430" y="90" font-size="11" fill="#334155">Keysight ENA</text>
+      <text x="350" y="112" font-size="11" fill="#334155">IDN：</text>
+      <text x="350" y="130" font-family="Consolas,monospace" font-size="9" fill="#475569">Keysight,E5071C,SN123,A.01</text>
+      <text x="350" y="152" font-size="11" fill="#334155">最近错误：</text><text x="430" y="152" font-size="11" fill="#334155">—</text>
+      <!-- acquisition card -->
+      <rect x="20" y="206" width="580" height="110" rx="10" fill="#ffffff" stroke="#059669" stroke-width="1.5"/>
+      <text x="34" y="228" font-size="14" font-weight="700" fill="#065f46">采集</text>
+      <rect x="34" y="238" width="130" height="28" rx="6" fill="#059669"/>
+      <text x="99" y="257" text-anchor="middle" font-size="12" fill="#fff">单次扫描并读取</text>
+      <rect x="174" y="238" width="120" height="26" rx="5" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="184" y="255" font-size="10" fill="#334155">幅频曲线（canvas）</text>
+      <rect x="304" y="238" width="120" height="26" rx="5" fill="#f1f5f9" stroke="#cbd5e1"/>
+      <text x="314" y="255" font-size="10" fill="#334155">数据表 |S11|…|S22|</text>
+      <text x="34" y="296" font-size="10" fill="#64748b">提示：单台实机建议"VNA 面板"与"校准工作台真实矢网"二选一，避免命令交错。</text>
+    </svg>
+    <div class="cap">图 4&nbsp; 矢网控制面板：连接 / 状态 / 采集（幅频曲线 + 数据表）</div>
+  </div>
+
+  <h3>5.3 各品牌开启 SCPI 要点</h3>
+  <table>
+    <thead><tr><th>品牌</th><th>开启远程控制（通用做法）</th><th>默认端口</th></tr></thead>
+    <tbody>
+      <tr><td>罗德 R&amp;S</td><td>System → Remote Control，启用 TCP/IP SCPI 服务器</td><td>5025</td></tr>
+      <tr><td>Keysight E5071C</td><td>System → Misc Setup → Network Setting 设 IP 并启用 LAN（SCPI Socket 随 LAN 启用）</td><td>5025</td></tr>
+      <tr><td>Keysight N5247 PNA-X</td><td>System → System Setup → Network Setup 设 IP；Configure → 启用 SCPI Server</td><td>5025</td></tr>
+      <tr><td>思仪 Ceyear</td><td>系统 → 通信设置 → LAN，启用远程控制</td><td>5025</td></tr>
+      <tr><td>安立 Anritsu</td><td>System → Remote / SCPI Server 启用（端口可能为 5030 等，请确认）</td><td>5025*</td></tr>
+    </tbody>
+  </table>
+  <p class="cap">*Anritsu 部分机型默认 SCPI 端口可能不是 5025，请在前面板确认后在面板改端口再连接。</p>
+
+  <h3>5.4 故障排查</h3>
+  <table>
+    <thead><tr><th>现象</th><th>处理</th></tr></thead>
+    <tbody>
+      <tr><td>连接超时 / 被拒</td><td>查网段互通、防火墙放行 5025、SCPI 服务器已开；先 <code class="mono">Test-NetConnection -Port 5025</code> 验端口</td></tr>
+      <tr><td>识别厂商为空</td><td>手选对应厂商后重连；把 <code class="mono">*IDN?</code> 返回发我加关键词</td></tr>
+      <tr><td>取数为空 / 解析报错</td><td>确认仪器支持 <code class="mono">:FORMat:DATA ASCii</code>；把报错发我</td></tr>
+      <tr><td>定义测量报错</td><td>确认通道 1 可用、端口数与 S 参数数量匹配</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ 6 ============ -->
+<section id="s6">
+  <h2>6. 校准工作台</h2>
+  <p>校准工作台是一套阻抗调谐 / 校准流程（Smith 图、阻抗搜索、RF 验证）。默认使用 <b>Mock 合成数据</b>，
+    也可勾选"使用真实矢网"接入实机采集。</p>
+
+  <h3>6.1 用真实矢网跑校准</h3>
+  <ul>
+    <li>导航 → <b>校准工作台（模拟）→ Dashboard</b>。</li>
+    <li>勾选 <b>使用真实矢网 (TCP/IP)</b>，填厂商 / IP / 起始 / 终止 / 频点。</li>
+    <li>点 <b>初始化模拟硬件并回零</b>。注意：运动控制器（Zmotion）与矢网<b>相互独立</b>；真实矢网只替换"测量"这一环，S 参数来自实机。</li>
+    <li>后续「校准设置 / 校准运行 / 数据库 / Smith 图 / 阻抗调谐 / 验证报告」流程不变。</li>
+  </ul>
+  <div class="warn"><b>单台矢网二选一：</b>若同一台矢网同时被"VNA 面板"和"校准工作台真实矢网"占用，命令会交错。
+    建议要么在 VNA 面板手动采，要么进校准工作台让它托管，不要同时操作。</div>
+
+  <h3>6.2 校准流程</h3>
+  <div class="figure">
+    <svg viewBox="0 0 680 130" role="img" aria-label="校准流程">
+      <defs>
+        <marker id="ar3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#475569"/>
+        </marker>
+      </defs>
+      <g font-size="11" text-anchor="middle">
+        <rect x="6"  y="40" width="84" height="44" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+        <text x="48"  y="62">初始化</text><text x="48" y="78" font-size="9" fill="#64748b">硬件+回零</text>
+        <rect x="104" y="40" width="84" height="44" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+        <text x="146" y="62">校准设置</text><text x="146" y="78" font-size="9" fill="#64748b">建库</text>
+        <rect x="202" y="40" width="84" height="44" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+        <text x="244" y="62">校准运行</text><text x="244" y="78" font-size="9" fill="#64748b">扫点</text>
+        <rect x="300" y="40" width="84" height="44" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+        <text x="342" y="62">数据库</text><text x="342" y="78" font-size="9" fill="#64748b">HDF5</text>
+        <rect x="398" y="40" width="84" height="44" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+        <text x="440" y="62">Smith 图</text><text x="440" y="78" font-size="9" fill="#64748b">Γ 分布</text>
+        <rect x="496" y="40" width="84" height="44" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+        <text x="538" y="62">阻抗调谐</text><text x="538" y="78" font-size="9" fill="#64748b">搜索</text>
+        <rect x="594" y="40" width="80" height="44" rx="8" fill="#ecfdf5" stroke="#059669"/>
+        <text x="634" y="62">验证报告</text><text x="634" y="78" font-size="9" fill="#64748b">RF 校验</text>
+      </g>
+      <g stroke="#475569" stroke-width="2" marker-end="url(#ar3)">
+        <line x1="90"  y1="62" x2="102" y2="62"/>
+        <line x1="188" y1="62" x2="200" y2="62"/>
+        <line x1="286" y1="62" x2="298" y2="62"/>
+        <line x1="384" y1="62" x2="396" y2="62"/>
+        <line x1="482" y1="62" x2="494" y2="62"/>
+        <line x1="580" y1="62" x2="592" y2="62"/>
+      </g>
+      <text x="340" y="108" text-anchor="middle" font-size="10" fill="#64748b">真实矢网在"校准运行"环节替换测量（S 参数来自实机）</text>
+    </svg>
+    <div class="cap">图 5&nbsp; 校准流程：初始化 → 校准设置 → 校准运行 → 数据库 → Smith 图 → 阻抗调谐 → 验证报告</div>
+  </div>
+
+  <h3 id="s63">6.3 Smith 图均匀布点</h3>
+  <p>旧版用<b>笛卡尔机械网格</b>布点：X 取 <code class="mono">x_count</code> 个值、每个 Z 轴取 <code class="mono">z_count</code> 个值，
+    点数 = <code class="mono">x_count × z_count^probes</code>（3 探针默认 <b>576</b> 点），而且大量点落在 Smith 图的 Γ 死区。</p>
+  <p>新方案按<b>行业通用做法</b>把标定点铺在<b>阻抗平面</b>上：点数与探针数无关，密度分档
+    <b>Low 95 / Medium 181 / High 361</b>（与通用分档一致）。</p>
+  <table>
+    <thead><tr><th>布点方式</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><b>笛卡尔网格</b></td><td>旧方式，保留以兼容既有校准库</td></tr>
+      <tr><td><b>Smith 图均匀布点</b></td>
+          <td>把均匀目标点集反解为机械坐标。<b>需要先有一轮已测点</b>建立响应模型，
+              没有实测数据时软件会明确提示"请先用笛卡尔网格建库并运行"</td></tr>
+      <tr><td>分布方式</td>
+          <td><b>Sunflower 螺旋</b>（默认）：Fermat 螺旋，181 点时最近邻间距变化 &lt; 2%，最均匀；<br>
+              <b>同心环</b>：等面积环、奇偶交错，便于在图上对应"相位层"</td></tr>
+      <tr><td>|Γ| 上下限</td><td>限制布点的反射系数范围，默认 0 ~ 0.95</td></tr>
+    </tbody>
+  </table>
+  <h4>推荐工作流</h4>
+  <ol>
+    <li>先用<b>笛卡尔网格</b>建库并跑一轮（点少、快），得到一批已测点。</li>
+    <li>点 <b>预览布点与覆盖度</b>：画布上蓝点是目标点集、红点是已测点，
+        下方显示已测点的平均/最大间距与覆盖率。</li>
+    <li>点 <b>Smith 图细化布点（补点）</b>：软件用已测点拟合出调谐器响应模型，
+        在 Γ 平面上挑出<b>离已有数据最远</b>的点作为补充点，<b>追加进同一个校准库</b>（原子写入，不破坏历史）。</li>
+    <li>回到「校准运行」继续测新点，覆盖度随之提高；重复 2~3 轮即可逼近均匀覆盖。</li>
+  </ol>
+  <div class="note"><b>为什么是"两段式"而不是一次到位：</b>调谐器从探针深度到 |Γ| 的映射取决于探针几何与夹具，
+    任何先验模型都可能带偏整个布点。因此软件<b>从实测中学习</b>响应，再据此安排下一批点位——
+    这与"均匀布点 + 二阶插值"、"按应用自动选表征方法"的通用思路一致。</div>
+
+  <h3 id="s64">6.4 实机校准工作流</h3>
+  <p>校准工作台的<b>运动来源</b>可切换：<b>模拟运动</b>（Mock，无硬件）或 <b>实机 Zmotion</b>（四轴 X / Z1 / Z2 / Z3）。
+    实机模式复用「通讯设置」里那条控制器连接，<b>不会第二次打开控制器</b>。</p>
+
+  <div class="danger"><b>安全闸门（软件强制）：</b>实机模式下，如果任一轴的 <code class="mono">feedback_scale</code> ≠ 1
+    （即 UNITS 与反馈标度仍不一致），<b>初始化会被直接拒绝</b>，并提示先做标度自检。
+    原因很实在：UNITS 差 84 倍，校准网格的"10 mm"就会让机器实际走 840 mm。</div>
+
+  <h4>照着做的顺序</h4>
+  <ol>
+    <li><b>通讯设置</b>页：填 <code class="mono">192.168.0.11</code> → 点「连接」。状态表四轴「状态说明」应全为<b>正常</b>。</li>
+    <li><b>轴移动控制</b>页：选轴 → 点「标度自检」（步长 0.005，会自动回原位）。
+        记录<b>比值</b>与软件给出的<b>修正后 UNITS</b>。</li>
+    <li>点「<b>采纳并写入修正后的 UNITS</b>」→ 控制器与设置文件同步更新。
+        <b>该轴此后必须重新回零</b>（软件已把它标记为未回零）。四轴都做一遍。</li>
+    <li><b>校准工作台 → Dashboard</b>：运动来源选<b>实机 Zmotion</b>，填行程
+        （X 起点/终点、Z 起点/终点、安全 Z），点「回零（实机）」。
+        <span class="badge">提示</span>回零会移动机器，是独立的显式动作，初始化<b>不会</b>自动回零。</li>
+    <li>回零成功后点「初始化」→ 通过标度闸门后建立校准库。</li>
+    <li><b>校准设置</b>页：先用<b>笛卡尔网格</b>建库（点少、快）→ <b>校准运行</b>跑一轮 → 回到校准设置点
+        「预览布点与覆盖度」→「Smith 图细化布点（补点）」→ 再跑一轮。重复 2~3 轮。</li>
+    <li><b>Smith 图</b>页看 Γ 分布，<b>阻抗调谐</b>页找目标阻抗，<b>验证报告</b>页看复现性。</li>
+  </ol>
+
+  <h4>行程参数怎么填</h4>
+  <table>
+    <thead><tr><th>参数</th><th>含义</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>X 行程起点/终点</td><td>共享 X 轴允许走到的范围 (mm)</td>
+          <td>标定点只会在这个区间内；控制器出厂软限位仍是外层保护</td></tr>
+      <tr><td>Z 行程起点/终点</td><td>三个探针轴的插入深度范围 (mm)</td>
+          <td>决定 Smith 图上可达的 |Γ| 范围</td></tr>
+      <tr><td>安全 Z</td><td>探针完全回缩的位置 (mm)</td>
+          <td>共享 X 移动前，所有探针必须在这个位置</td></tr>
+    </tbody>
+  </table>
+  <div class="warn"><b>行程参数是校准的硬边界：</b>软件用它们校验每一个标定点，
+    超出范围的位置根本不会被下发到机器。填之前请先用<b>轴移动控制</b>页点动，
+    确认各轴的实际可用范围与方向（正方向可能是负的）。</div>
+
+  <h3 id="s65">6.5 插值调谐（二阶 Lagrange + 两段式寻点）</h3>
+  <p>「阻抗调谐」页现在有两种寻点能力：<b>最近邻查表</b>（旧版，只能给出已标定的点）与
+    <b>插值调谐</b>（在标定数据之上做连续推断）。</p>
+
+  <h4>插值算法</h4>
+  <table>
+    <thead><tr><th>标定数据形态</th><th>使用的插值器</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><b>完整张量网格</b><br>（笛卡尔网格布点）</td>
+          <td><b>二阶 Lagrange</b><br>（二阶 Lagrange 算法）</td>
+          <td>逐轴三次（二阶）插值：幅度轴（探针深度）先插，相位轴（X 载物台）后插。
+              2 维即经典的 9 点邻域，n 维为 3ⁿ 点</td></tr>
+      <tr><td><b>散点</b><br>（Smith 图细化布点）</td>
+          <td><b>局部二次拟合</b></td>
+          <td>取邻近点做加权二次最小二乘；邻域不足时自动降到一次或最近点</td></tr>
+    </tbody>
+  </table>
+  <p>两种插值器都插值<b>四个 S 参数</b>（不是 Γ），再按端口约定与夹具换算成 Γ——
+    这正是二阶 Lagrange 插值的标准做法。</p>
+
+  <h4>两段式寻点</h4>
+  <ol>
+    <li><b>一般搜索</b>：在 Γ 平面上找最近的已标定点，作为起点。</li>
+    <li><b>梯度搜索</b>：在插值模型上做局部寻优（最小化 |Γ(x) − Γ_target|）。</li>
+    <li><b>细网格修正</b>：在结果附近加密采样再取最优（细网格 fine interpolation grid）。</li>
+  </ol>
+  <p>页面上的<b>阶段表</b>会显示每一阶段的误差矢量，能直接看出每一步的贡献。</p>
+
+  <div class="tip"><b>实测效果（Mock 调谐器，7×3×3 = 63 点网格，目标 Z=30 Ω）：</b><br>
+    最近邻查表 |ΔΓ| = <b>1.02e-01</b>（约 −20 dB，即未做细网格插值时的典型水平）<br>
+    梯度搜索后 |ΔΓ| = <b>1.54e-08</b> —— 提升约 <b>7 个数量级</b>。<br>
+    注意：这是<b>模型内</b>的收敛度；模型本身对真实机器的偏差取决于标定密度，必须实测复核。</div>
+
+  <h4>怎么选</h4>
+  <table>
+    <thead><tr><th>调谐算法</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><b>两段式</b>（默认）</td><td>生产使用：给出连续点位，精度最高</td></tr>
+      <tr><td>梯度搜索</td><td>跳过细网格，节省一点时间</td></tr>
+      <tr><td>一般搜索</td><td>只要"最近的已标定点"时用</td></tr>
+      <tr><td>最近邻查表</td><td>旧版行为，保留作对照</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><b>插值层级策略：</b>默认「最近三层」——选取中心最接近查询值的三层，
+    查询被夹在中间时是内插而非外推，数值最稳。另一选项「原始规则」按经典取层方式
+    <b>下 1 层 + 上 2 层</b>，属另一种偏置策略。</div>
+
+  <h4>标定密度决定精度上限</h4>
+  <p>插值误差主要来自<b>相邻两层之间的相位跨度</b>。X 载物台每走一格，反射相位转多少度，
+    就是插值的"难度"。软件给出经验建议：</p>
+  <table>
+    <thead><tr><th>相位跨度</th><th>每格相位步长上限</th><th>建议 X 层数</th></tr></thead>
+    <tbody>
+      <tr><td class="num">360°</td><td class="num">20°</td><td class="num">19</td></tr>
+      <tr><td class="num">360°</td><td class="num">45°</td><td class="num">9</td></tr>
+    </tbody>
+  </table>
+  <p>实测：网格加密一倍，插值误差下降到约 1/4（二阶收敛）。<b>所以 X 层数别省</b>——
+    这是提升调谐精度最有效的一个旋钮，比换算法更管用。</p>
+  <div class="warn"><b>注意：</b>调谐结果是<b>模型预测</b>。移动到该位置后，
+    请用「验证当前阻抗」实测复核，模型与真实机器的偏差要以实测为准。</div>
+
+  <h3 id="s66">6.6 插值验证闭环</h3>
+  <p>「验证报告」页新增<b>插值验证闭环</b>，做法与行业通用方法一致：
+    把调谐器移到一组<b>插值得到</b>的阻抗点（网格单元中心，<b>不是</b>标定点本身），
+    用已校准的仪器实测，与模型预测比较<b>误差矢量</b>；超过容差即建议重新标定。</p>
+  <div class="warn"><b>这一步会移动机器</b>，且耗时与验证点数成正比。</div>
+
+  <h4>验证点怎么选</h4>
+  <table>
+    <thead><tr><th>策略</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><b>覆盖最难处</b>（默认）</td>
+          <td>挑 Γ 平面上<b>离已标定点最远</b>的位置——插值最容易出错的地方，验证信息量最大</td></tr>
+      <tr><td>均匀分散</td><td>在整个候选集上均匀取点，做一般性检查</td></tr>
+    </tbody>
+  </table>
+
+  <h4>误差矢量的三种读法</h4>
+  <table>
+    <thead><tr><th>分量</th><th>含义</th><th>指向的问题</th></tr></thead>
+    <tbody>
+      <tr><td><code class="mono">|ΔΓ|</code></td><td>Γ 平面上的矢量距离（误差矢量 error vector）</td><td>总体偏离</td></tr>
+      <tr><td><b>幅度分量</b></td><td>反射系数幅值差</td><td>探针深度/增益不对、标定点太稀</td></tr>
+      <tr><td><b>相位分量</b></td><td>反射系数相位差（换算到 Γ 平面距离）</td><td>X 相位层数不足、载物台行程标度不对</td></tr>
+    </tbody>
+  </table>
+  <p>报告会指出<b>哪一项占主导</b>，并给出排查方向——这比只给一个总误差有用得多。</p>
+
+  <h4>实测示例</h4>
+  <div class="note">用 Mock 调谐器、7×3×3 = 63 点网格、4 个验证点跑出来：<br>
+    判定 = <b>建议重新标定</b>，最大 |ΔΓ| = <b>0.088140</b>（−21.1 dB）<br>
+    误差以<b>幅度分量</b>为主（幅度 0.0755 vs 相位 0.0033）<br>
+    → 结论：<b>标定点太稀</b>，不是标度问题。加密 Z 层数后重跑即可。
+  </div>
+  <div class="tip"><b>怎么用这个闭环：</b>标定完成后跑一次验证。若判定"建议重新标定"，
+    看报告指出的主导分量——幅度主导就加密 Z 层数，相位主导就加密 X 层数（见 6.5 的相位跨度表）。
+    反复几轮，直到判定为"通过"，这套标定才真正可以用于生产调谐。</div>
+</section>
+
+<!-- ============ 7 ============ -->
+<section id="s7">
+  <h2>7. 安全须知（实机首测必读）</h2>
+  <div class="figure">
+    <svg viewBox="0 0 620 250" role="img" aria-label="安全须知">
+      <!-- warning triangle -->
+      <polygon points="60,30 110,120 10,120" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
+      <text x="60" y="105" text-anchor="middle" font-size="34" font-weight="700" fill="#dc2626">!</text>
+      <g font-size="12" fill="#334155">
+        <rect x="150" y="20" width="440" height="38" rx="8" fill="#fffbeb" stroke="#fde68a"/>
+        <text x="164" y="44">① 标度自检必须先过：UNITS 与反馈标度不一致，软件会拒绝该轴运动</text>
+        <rect x="150" y="66" width="440" height="38" rx="8" fill="#fffbeb" stroke="#fde68a"/>
+        <text x="164" y="90">② Z2 的 bit22 告警已由现场修复；状态表会实时显示各轴状态说明与停止原因</text>
+        <rect x="150" y="112" width="440" height="38" rx="8" fill="#fffbeb" stroke="#fde68a"/>
+        <text x="164" y="136">③ 软件急停/复位 ≠ 硬件急停/限位，真机务必保留硬件联锁</text>
+        <rect x="150" y="158" width="440" height="38" rx="8" fill="#fffbeb" stroke="#fde68a"/>
+        <text x="164" y="182">④ FS/RS_LIMIT 仍为出厂默认 ±2e8，机械行程/方向未物理确认</text>
+        <rect x="150" y="204" width="440" height="34" rx="8" fill="#fef2f2" stroke="#fecaca"/>
+        <text x="164" y="226">⑤ 首次移动请用极小位移（如 0.05）并手备急停；共享 X 前 Z1/Z2/Z3 须回缩</text>
+      </g>
+    </svg>
+    <div class="cap">图 6&nbsp; 实机安全五要点</div>
+  </div>
+  <div class="danger"><b>实测前务必确认：</b>标度自检通过、保留硬件急停、限位行程未确认时只用极小位移。
+    已知实测比例（参考）：X≈40–67×、Z1≈84–96×、Z3≈90–96×，最终准确值需由标度自检测得并物理确认。</div>
+</section>
+
+<!-- ============ 8 ============ -->
+<section id="s8">
+  <h2>8. 常见问题 FAQ</h2>
+  <h4>Q1：<code class="mono">python -m tuner.web</code> 启动后浏览器没自动打开？</h4>
+  <p>手动访问 <code class="mono">http://127.0.0.1:8000</code>；或用 <code class="mono">--no-browser</code> 后自行打开。若端口被占，加 <code class="mono">--port 8001</code>。</p>
+  <h4>Q2：连接 Zmotion 失败？</h4>
+  <p>它是 UDP 广播发现，先确认上位机与控制器<b>同网段</b>（192.168.0.x），不要查 TCP 端口；可点「搜索」再连。</p>
+  <h4>Q3：矢网连不上？</h4>
+  <p>先用 <code class="mono">ping</code> 和 <code class="mono">Test-NetConnection -Port 5025</code> 验端口；确认仪器已开 SCPI 服务器、防火墙放行 5025。</p>
+  <h4>Q4：移动轴时报"标度不匹配"？</h4>
+  <p>这是预期的安全行为。到「轴移动控制」点 <b>标度自检</b>，测出真实比例存盘后即可放行。</p>
+  <h4>Q5：Z2 点不动？</h4>
+  <p>此前 Z2 的 <code class="mono">AXISSTATUS=4194304</code>（bit22 告警信号输入）已由现场修复。
+    现在状态表会直接显示该轴的状态说明与停止原因；修复后应显示「正常」。
+    若再次出现 bit22，先看「读取控制器错误码」的输出与操作日志里该轴前后的动作。</p>
+  <h4>Q6：操作日志存在哪里？</h4>
+  <p>默认只在内存（最近 2000 条），重启即清空。需要留档就用操作日志页的 <b>导出 JSON</b>，
+    导出文件是完整记录（含时间戳、级别与结构化数据）。</p>
+  <h4>Q7：Smith 图布点提示"需要先有一轮已测点"？</h4>
+  <p>这是设计如此：调谐器从探针深度到 |Γ| 的映射取决于探针几何与夹具，软件不预设模型。
+    先用笛卡尔网格建库并跑一轮，再做细化布点即可。</p>
+  <h4>Q8：实机模式初始化被拒，提示"必须先修正标度"？</h4>
+  <p>说明该轴的 UNITS 与反馈标度仍不一致。UNITS 差几倍，校准网格就会让机器实际走几倍的距离，
+    所以软件直接拒绝。到「轴移动控制」做标度自检，采纳修正后的 UNITS，再重新初始化。</p>
+  <h4>Q9：改了 UNITS 之后还能直接运动吗？</h4>
+  <p>不能。UNITS 决定"一个指令单位等于多少毫米"，改写后坐标系随之改变。
+    软件已把该轴标记为未回零，<b>必须重新回零</b>才能运动。</p>
+
+  <h4>Q10：3 轴和 4 轴 tuner 怎么切换？会不会弄丢已标定的数据？</h4>
+  <p>在<b>通讯设置 › tuner 型号</b>里切换，选择会保存到设置文件。
+    <b>不会丢数据</b>：控制器的物理轴序号是固定的，切换只改变软件命令哪几根轴，
+    已有的校准库（HDF5）和轴参数都照常可用。切换后各页面的轴表格会自动增减，
+    离开型号的轴其参数仍保留在文件里，切回即复用。</p>
+
+  <h4>Q11：3 轴机型的标定点数是不是变少了？</h4>
+  <p>是。笛卡尔网格点数是 <code class="mono">x_count × z_count^探针数</code>：
+    3 轴（2 探针）为 <code class="mono">x_count × z_count²</code>，
+    4 轴（3 探针）为 <code class="mono">x_count × z_count³</code>。
+    z_count=4 时 3 轴机型只有 4 轴机型约 1/4 的点数，标定更快但 Γ 覆盖更稀，
+    建议配合 6.3 的 Smith 图细化布点补齐。</p>
+
+  <h4>Q12：没有硬件时怎么练操作流程？</h4>
+  <p>在<b>通讯设置 › 控制器模式</b>里选<b>虚拟控制器</b>，点「连接」即可。
+    虚拟控制器会自动回零并生成初始位置，点动、回零、标度自检、急停、每轴状态与报错
+    全部照常工作。还可以注入状态位练诊断页，或一键生成合成校准数据练 Smith 图与调谐。
+    切回真实模式时连接会自动断开。</p>
+</section>
+
+<!-- ============ 9 ============ -->
+<section id="s9">
+  <h2>9. 附录：接口速查</h2>
+  <h3>9.1 关键命令</h3>
+  <pre><span class="c"># 启动 Web 控制台</span>
+python -m tuner.web                 <span class="c"># 自动开浏览器</span>
+python -m tuner.web --host 0.0.0.0 --port 8000 --no-browser
+
+<span class="c"># 桌面版（并存，可选）</span>
+python -m tuner.app                 <span class="c"># 运动控制台（实机）</span>
+python -m tuner.ui                  <span class="c"># 校准工作台（Mock）</span>
+
+<span class="c"># 硬件集成测试（控制器/VNA 不可达时自动跳过）</span>
+python -m pytest tests/ -q</pre>
+  <h3>9.2 Web API（节选）</h3>
+  <table>
+    <thead><tr><th>接口</th><th>作用</th></tr></thead>
+    <tbody>
+      <tr><td><code class="mono">POST /api/hardware/connect</code></td><td>连接 Zmotion 控制器</td></tr>
+      <tr><td><code class="mono">GET /api/hardware/status</code></td><td>四轴实时状态（300 ms 轮询）</td></tr>
+      <tr><td><code class="mono">POST /api/hardware/scale_check</code></td><td>标度自检</td></tr>
+      <tr><td><code class="mono">POST /api/hardware/estop</code> / <code class="mono">reset_estop</code></td><td>急停 / 复位</td></tr>
+      <tr><td><code class="mono">POST /api/hardware/probe</code></td><td>标度自检（返回比值与修正后的 UNITS）</td></tr>
+      <tr><td><code class="mono">POST /api/hardware/apply_scale</code></td><td>写入修正后的 UNITS 并保存设置</td></tr>
+      <tr><td><code class="mono">GET /api/hardware/axis_status</code></td><td>每轴详细状态（含状态位解码、停止原因、使能、速度）</td></tr>
+      <tr><td><code class="mono">POST /api/hardware/errors</code></td><td>读取控制器错误号 + 报警轴汇总（按需调用，不进轮询）</td></tr>
+      <tr><td><code class="mono">GET /api/hardware/settings</code> / <code class="mono">POST .../settings/save</code></td><td>通讯设置、控制器模式、tuner 型号</td></tr>
+      <tr><td><code class="mono">POST /api/hardware/model</code></td><td>切换 tuner 型号（<code class="mono">axis_count</code> = 3 或 4）</td></tr>
+      <tr><td><code class="mono">POST /api/hardware/mode</code></td><td>切换控制器模式（<code class="mono">mode</code> = real / virtual）</td></tr>
+      <tr><td><code class="mono">POST /api/hardware/inject_fault</code></td><td>虚拟模式：注入 / 清除轴状态位</td></tr>
+      <tr><td><code class="mono">POST /api/hardware/generate_data</code></td><td>虚拟模式：生成合成校准库并载入</td></tr>
+      <tr><td><code class="mono">POST /api/log/recent</code> / <code class="mono">clear</code> / <code class="mono">export</code></td><td>操作日志查询 / 清空 / 导出</td></tr>
+      <tr><td><code class="mono">POST /api/vna/connect</code></td><td>连接并配置矢网</td></tr>
+      <tr><td><code class="mono">POST /api/vna/fetch</code></td><td>单次扫描并读取 S11~S22</td></tr>
+      <tr><td><code class="mono">POST /api/studio/init_hardware</code></td><td>初始化（可带 <code class="mono">vna_source=real</code>）</td></tr>
+      <tr><td><code class="mono">POST /api/studio/setup</code></td><td>建库（<code class="mono">plan=cartesian|smith</code>）</td></tr>
+      <tr><td><code class="mono">POST /api/studio/plan/preview</code></td><td>预览 Smith 图布点与当前覆盖度</td></tr>
+      <tr><td><code class="mono">POST /api/studio/plan/refine</code></td><td>Smith 图细化布点：生成补点并追加到当前校准库</td></tr>
+      <tr><td><code class="mono">POST /api/studio/tune</code></td><td>阻抗调谐（<code class="mono">method=nearest|general|gradient|two-stage</code>）</td></tr>
+      <tr><td><code class="mono">POST /api/studio/move_tuned</code></td><td>移动到插值调谐的结果位置</td></tr>
+      <tr><td><code class="mono">POST /api/studio/validate_interpolation</code></td><td>运行插值验证闭环（会移动机器）</td></tr>
+      <tr><td><code class="mono">GET /api/studio/interpolation_report</code></td><td>读取插值验证报告</td></tr>
+    </tbody>
+  </table>
+  <p class="cap">完整 API 与命令对照见 <code class="mono">docs/VNA.md</code> 与 <code class="mono">docs/API.md</code>。</p>
+</section>
+
+</div>
+
+<footer>
+  TunerLab v0.1.0 · Web 控制台操作手册（图文版） · 2026-11-03 · 对应 <code class="mono">tuner/web</code> 与 <code class="mono">tuner/vna_drivers.py</code>
+</footer>
+</body>
+</html>

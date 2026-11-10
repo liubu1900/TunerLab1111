@@ -1,0 +1,7 @@
+"""Entry point so ``python -m tuner.web`` starts the web console."""
+from __future__ import annotations
+
+from .server import main
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TunerLab · Web 控制台</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="brand">
+        <div class="brand-name">TunerLab</div>
+        <div class="brand-sub">Web 控制台</div>
+      </div>
+      <div class="nav-group">运动控制台（实机）</div>
+      <nav>
+        <button class="nav-item" data-page="hw-comm">通讯设置</button>
+        <button class="nav-item" data-page="hw-motion">轴移动控制</button>
+        <button class="nav-item" data-page="hw-params">轴参数设定</button>
+      </nav>
+      <div class="nav-group">校准工作台（模拟）</div>
+      <nav>
+        <button class="nav-item" data-page="studio-dashboard">Dashboard</button>
+        <button class="nav-item" data-page="studio-setup">校准设置</button>
+        <button class="nav-item" data-page="studio-run">校准运行</button>
+        <button class="nav-item" data-page="studio-database">数据库</button>
+        <button class="nav-item" data-page="studio-smith">Smith 图</button>
+        <button class="nav-item" data-page="studio-tuning">阻抗调谐</button>
+        <button class="nav-item" data-page="studio-validation">验证报告</button>
+        <button class="nav-item" data-page="p1-tools">P1 工具箱</button>
+      </nav>
+      <div class="nav-group">仪器控制（TCP/IP）</div>
+      <nav>
+        <button class="nav-item" data-page="vna">矢网控制 (VNA)</button>
+      </nav>
+      <div class="nav-group">运行记录</div>
+      <nav>
+        <button class="nav-item" data-page="oplog">操作日志</button>
+      </nav>
+      <div id="conn-indicator" class="conn-off">硬件未连接</div>
+    </aside>
+
+    <main id="content">
+      <!-- 通讯设置 -->
+      <section class="page" id="page-hw-comm">
+        <h1>通讯设置</h1>
+        <div class="card">
+          <h2>控制器连接</h2>
+          <div class="form-row">
+            <label>控制器模式</label>
+            <select id="hw-mode">
+              <option value="real">真实控制器 (Zmotion)</option>
+              <option value="virtual">虚拟控制器 (无硬件演练)</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>控制器 IP</label>
+            <input id="hw-ip" type="text" placeholder="192.168.0.11" />
+          </div>
+          <div class="form-row">
+            <label><input id="hw-auto" type="checkbox" /> 启动时自动连接</label>
+          </div>
+          <div class="form-row">
+            <label>tuner 型号</label>
+            <select id="hw-model">
+              <option value="3">3 轴 tuner (X, Z1, Z2)</option>
+              <option value="4">4 轴 tuner (X, Z1, Z2, Z3)</option>
+            </select>
+          </div>
+          <p class="hint">选择本机 tuner 型号：3 轴为 2 个探针（X/Z1/Z2），4 轴为 3 个探针
+            （X/Z1/Z2/Z3）。切换后所有页面只显示该型号的轴，控制器物理轴序号不变，
+            已保存的校准数据依然可用。</p>
+          <div class="btn-row">
+            <button id="hw-connect" class="btn primary">连接</button>
+            <button id="hw-disconnect" class="btn">断开</button>
+            <button id="hw-search" class="btn">广播搜索</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>连接状态</h2>
+          <div class="kv"><span>状态</span><b id="hw-state">未连接</b></div>
+          <div class="kv"><span>固件版本</span><b id="hw-firmware">—</b></div>
+          <div class="kv"><span>控制器地址</span><b id="hw-address">—</b></div>
+          <div class="kv"><span>SDK 库</span><b id="hw-library" class="num">—</b></div>
+          <div class="kv"><span>tuner 型号</span><b id="hw-model-info">—</b></div>
+          <div class="kv"><span>控制器模式</span><b id="hw-mode-info">—</b></div>
+        </div>
+        <div class="card">
+          <h2>设置文件</h2>
+          <div class="kv"><span>路径</span><b id="hw-settings-path" class="num">—</b></div>
+          <div class="btn-row">
+            <button id="hw-save-settings" class="btn">保存通讯设置</button>
+          </div>
+        </div>
+        <p class="hint">控制器通过以太网通信，ZAux_OpenEth 用 UDP 广播在本网段定位设备，上位机须与控制器同网段。</p>
+        <p class="hint"><b>虚拟控制器</b>：无需任何硬件，点「连接」即生成初始位置、状态与标度数据，
+          可完整演练点动 / 回零 / 标度自检 / 急停等流程；切换模式会断开当前连接。</p>
+      </section>
+
+      <!-- 轴移动控制 -->
+      <section class="page" id="page-hw-motion" hidden>
+        <h1>轴移动控制</h1>
+        <div class="card">
+          <h2>实时状态（300 ms 刷新）</h2>
+          <table id="hw-status-table">
+            <thead>
+              <tr><th>轴</th><th>DPOS</th><th>MPOS</th><th>跟随误差</th><th>空闲</th><th>回零</th>
+                  <th>AXISSTATUS</th><th>状态说明</th><th>停止原因</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <div class="btn-row wrap">
+            <button id="hw-read-errors" class="btn">读取控制器错误码</button>
+            <button id="hw-refresh-status" class="btn">刷新详细状态</button>
+          </div>
+          <div id="hw-error-box" class="scale-msg"></div>
+          <div class="card" id="hw-drill-card" hidden>
+            <h2>虚拟故障演练</h2>
+            <p class="hint">仅在<b>虚拟控制器</b>模式下可用：向指定轴注入状态位，
+              用来演练诊断页的读取与判读（默认 bit22 = 告警信号输入，
+              即实机 Z2 曾出现的那一位）。</p>
+            <div class="form-row">
+              <label>目标轴</label>
+              <select id="hw-drill-axis"></select>
+              <label>状态位</label>
+              <input id="hw-drill-bit" class="num" type="number" value="22" min="0" max="31" />
+            </div>
+            <div class="btn-row wrap">
+              <button id="hw-drill-inject" class="btn">注入故障</button>
+              <button id="hw-drill-clear" class="btn">清除全部故障</button>
+            </div>
+          </div>
+          <div class="card" id="hw-data-card" hidden>
+            <h2>生成虚拟校准数据</h2>
+            <p class="hint">一键生成一份<b>合成校准库</b>（含各点位的 S 参数），
+              结构与实测库完全一致，可直接用于 Smith 图、阻抗调谐与插值验证。
+              点数 = x 数 × z 数^探针数。</p>
+            <div class="form-row">
+              <label>X 层数</label>
+              <input id="hw-data-x" class="num" type="number" value="7" min="2" max="51" />
+              <label>每轴 Z 层数</label>
+              <input id="hw-data-z" class="num" type="number" value="4" min="2" max="15" />
+            </div>
+            <div class="btn-row wrap">
+              <button id="hw-data-generate" class="btn primary">生成虚拟校准数据</button>
+            </div>
+            <div id="hw-data-msg" class="scale-msg"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>运动控制</h2>
+          <div class="form-row">
+            <label>点动步长 (mm)</label>
+            <input id="hw-step" class="num" type="number" step="0.0001" value="0.1" />
+            <label>轴</label>
+            <select id="hw-axis">
+              <option>X</option><option>Z1</option><option>Z2</option><option>Z3</option>
+            </select>
+            <label>绝对目标 (mm)</label>
+            <input id="hw-target" class="num" type="number" step="0.0001" value="0" />
+          </div>
+          <div class="btn-row wrap">
+            <button id="hw-jog-neg" class="btn">点动 −</button>
+            <button id="hw-jog-pos" class="btn">点动 +</button>
+            <button id="hw-abs" class="btn primary">绝对定位</button>
+            <button id="hw-home" class="btn">回零</button>
+            <button id="hw-stop" class="btn">停止</button>
+            <button id="hw-probe" class="btn">标度自检</button>
+          </div>
+          <div class="btn-row wrap">
+            <button id="hw-estop" class="btn danger">急停 (EMERGENCY STOP)</button>
+            <button id="hw-reset" class="btn">复位急停</button>
+            <button id="hw-apply-scale" class="btn danger" hidden>采纳并写入修正后的 UNITS</button>
+          </div>
+        </div>
+        <div id="hw-scale" class="scale-msg"></div>
+        <p class="hint">共享 X 轴运动前，三个探针轴必须全部回缩到安全位置。软件急停不能替代硬件安全联锁。</p>
+      </section>
+
+      <!-- 轴参数设定 -->
+      <section class="page" id="page-hw-params" hidden>
+        <h1>轴参数设定</h1>
+        <div class="card">
+          <div class="btn-row wrap">
+            <button id="hw-params-read" class="btn">从控制器读取</button>
+            <button id="hw-params-write" class="btn primary">写入控制器</button>
+            <button id="hw-params-save" class="btn">保存到文件</button>
+            <button id="hw-params-load" class="btn">从文件加载</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>轴参数</h2>
+          <table id="hw-params-table">
+            <thead><tr><th>轴</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="hw-params-hint" class="scale-msg"></div>
+        <p class="hint">修改后点「写入控制器」才会下发到设备；「保存到文件」仅更新本机配置。</p>
+      </section>
+
+      <!-- Studio Dashboard -->
+      <section class="page" id="page-studio-dashboard" hidden>
+        <h1>Dashboard · 校准工作台</h1>
+        <div class="card">
+          <h2>初始化</h2>
+          <div class="form-row">
+            <label>运动来源</label>
+            <select id="st-motion-source">
+              <option value="mock">模拟运动（Mock）</option>
+              <option value="real">实机 Zmotion（四轴 X / Z1 / Z2 / Z3）</option>
+            </select>
+            <label>机械结构</label>
+            <select id="st-probes">
+              <option value="2">2 探针: X, Z1, Z2</option>
+              <option value="3" selected>3 探针: X, Z1, Z2, Z3</option>
+            </select>
+            <label>固定探针偏移 (mm)</label>
+            <input id="st-offsets" class="num" type="text" value="0, 2, 4" />
+          </div>
+          <div class="form-row" id="st-travel-row">
+            <label>X 行程起点 (mm)</label>
+            <input id="st-x-min" class="num" type="number" step="0.1" value="0" />
+            <label>X 行程终点 (mm)</label>
+            <input id="st-x-max" class="num" type="number" step="0.1" value="10" />
+            <label>Z 行程起点 (mm)</label>
+            <input id="st-z-min" class="num" type="number" step="0.01" value="0" />
+            <label>Z 行程终点 (mm)</label>
+            <input id="st-z-max" class="num" type="number" step="0.01" value="1" />
+            <label>安全 Z (mm)</label>
+            <input id="st-safe-z" class="num" type="number" step="0.01" value="0" />
+          </div>
+          <div class="form-row">
+            <label><input id="st-vna-real" type="checkbox" /> 使用真实矢网 (TCP/IP)</label>
+            <label>厂商</label>
+            <select id="st-vna-vendor">
+              <option value="auto">自动识别</option>
+              <option value="rsp">罗德 R&amp;S</option>
+              <option value="keysight_ena">Keysight E5071C</option>
+              <option value="keysight_pna">Keysight N5247 PNA-X</option>
+              <option value="ceyear">思仪 AV3672</option>
+              <option value="anritsu">安立</option>
+            </select>
+            <label>VNA IP</label>
+            <input id="st-vna-ip" type="text" placeholder="192.168.0.50" />
+          </div>
+          <div class="form-row">
+            <label>VNA 起始 (Hz)</label>
+            <input id="st-vna-start" class="num" type="number" value="1000000000" />
+            <label>VNA 终止 (Hz)</label>
+            <input id="st-vna-stop" class="num" type="number" value="20000000000" />
+            <label>VNA 频点</label>
+            <input id="st-vna-points" class="num" type="number" min="1" value="401" />
+          </div>
+          <div class="btn-row wrap">
+            <button id="st-init" class="btn primary">初始化</button>
+            <button id="st-home" class="btn">回零（实机）</button>
+          </div>
+          <div id="st-dash-summary" class="scale-msg"></div>
+          <p class="hint">实机模式：先在「通讯设置」连接控制器；每轴 UNITS 与反馈标度必须一致
+            （标度自检通过并采纳修正后的 UNITS）才允许初始化。回零会移动机器，是独立的显式动作。</p>
+        </div>
+        <div class="card">
+          <h2>模拟硬件控制</h2>
+          <div class="kv"><span>当前坐标</span><b id="st-pos" class="num">—</b></div>
+          <div class="form-row">
+            <label>轴</label>
+            <select id="st-axis"><option>X</option><option>Z1</option><option>Z2</option><option>Z3</option></select>
+            <label>点动增量 (mm)</label>
+            <input id="st-delta" class="num" type="number" step="0.001" value="0.1" />
+          </div>
+          <div class="btn-row wrap">
+            <button id="st-jog" class="btn">点动</button>
+            <button id="st-retract" class="btn" title="手动工具：软件不再于 X 运动前自动回缩探针">手动回缩全部 Z</button>
+            <button id="st-estop" class="btn danger">急停</button>
+            <button id="st-reset" class="btn">复位并重新回零</button>
+          </div>
+        </div>
+        <p class="hint">各轴独立运动，X 轴不再受探针位置约束，软件也不会自动回缩探针；移动 X 前请自行确认避让，软件急停不能替代硬件联锁。「手动回缩全部 Z」是可选工具，不是自动前置步骤。模拟数据仅用于工作流演示：机械定位成功不代表 RF 阻抗精度。端口约定：DUT 接调谐器端口 1，端口 2 终接 50 Ω。</p>
+      </section>
+
+      <!-- Studio Setup -->
+      <section class="page" id="page-studio-setup" hidden>
+        <h1>校准设置</h1>
+        <div class="card">
+          <h2>新建校准任务</h2>
+          <div class="form-row">
+            <label>X 网格点数 (0–10 mm)</label>
+            <input id="st-xcount" class="num" type="number" min="2" max="51" value="9" />
+            <label>每轴 Z 点数 (0–1 mm)</label>
+            <input id="st-zcount" class="num" type="number" min="2" max="15" value="4" />
+          </div>
+          <div class="form-row">
+            <label>校准文件</label>
+            <input id="st-path" type="text" />
+          </div>
+          <div class="kv"><span>机械位置总数</span><b id="st-grid-count" class="num">—</b></div>
+          <div class="btn-row">
+            <button id="st-create" class="btn primary">创建校准任务</button>
+          </div>
+          <div id="st-setup-msg" class="scale-msg"></div>
+        </div>
+        <div class="card">
+          <h2>Smith 图均匀布点</h2>
+          <p class="hint">笛卡尔网格的点数随探针数幂次增长（3 探针默认 576 点），且大量点落在 Smith 图的 Γ 死区。
+            均匀布点把标定点铺在整个阻抗平面上，点数与探针数无关（对齐行业通用的 95 / 181 / 361 三档）。</p>
+          <div class="form-row">
+            <label>布点方式</label>
+            <select id="st-plan">
+              <option value="cartesian">笛卡尔网格（机械坐标）</option>
+              <option value="smith">Smith 图均匀布点（需已有实测模型）</option>
+            </select>
+            <label>密度档位</label>
+            <select id="st-density">
+              <option value="low">Low · 95 点</option>
+              <option value="medium" selected>Medium · 181 点</option>
+              <option value="high">High · 361 点</option>
+            </select>
+            <label>分布方式</label>
+            <select id="st-plan-method">
+              <option value="sunflower">Sunflower 螺旋（最均匀）</option>
+              <option value="rings">同心环（等面积环）</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>|Γ| 下限</label>
+            <input id="st-rmin" class="num" type="number" step="0.01" min="0" max="0.99" value="0" />
+            <label>|Γ| 上限</label>
+            <input id="st-rmax" class="num" type="number" step="0.01" min="0.01" max="1" value="0.95" />
+          </div>
+          <div class="btn-row wrap">
+            <button id="st-plan-preview" class="btn">预览布点与覆盖度</button>
+            <button id="st-plan-refine" class="btn primary">Smith 图细化布点（补点）</button>
+          </div>
+          <div id="st-plan-msg" class="scale-msg"></div>
+          <canvas id="st-plan-canvas" width="420" height="420"></canvas>
+          <div class="kv"><span>已测点覆盖度</span><b id="st-plan-coverage" class="num">—</b></div>
+        </div>
+        <p class="hint">VNA：1–20 GHz，41 个频点；每个位置记录 S11/S21/S12/S22。模拟限位与偏移仅为示意配置。</p>
+      </section>
+
+      <!-- Studio Run -->
+      <section class="page" id="page-studio-run" hidden>
+        <h1>校准运行</h1>
+        <div class="card">
+          <div class="progress"><div id="st-progress-bar" class="progress-bar"></div></div>
+          <div class="kv"><span>进度</span><b id="st-progress-text" class="num">—</b></div>
+          <div class="kv"><span>状态</span><b id="st-run-state">—</b></div>
+          <div class="btn-row wrap">
+            <button id="st-run" class="btn primary">运行 / 恢复</button>
+            <button id="st-pause" class="btn">暂停</button>
+            <button id="st-cancel" class="btn">取消</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>采集点云 (F-11)</h2>
+          <p class="hint">每一列是一个 X 层，每一格是一个 (Z1,Z2,Z3) 组合。填满 = 已写入校准库。</p>
+          <div id="st-cloud" class="cloud"></div>
+          <div class="kv"><span>点云</span><b id="st-cloud-text" class="num">—</b></div>
+        </div>
+        <div class="card">
+          <h2>运行日志</h2>
+          <textarea id="st-run-log" class="log" readonly></textarea>
+        </div>
+      </section>
+
+      <!-- Studio Database -->
+      <section class="page" id="page-studio-database" hidden>
+        <h1>校准数据库</h1>
+        <div class="card">
+          <div class="form-row">
+            <label>打开 HDF5</label>
+            <input id="st-db-path" type="text" placeholder="calibrations/mock_*.h5" />
+            <button id="st-db-open" class="btn primary">打开 / 恢复</button>
+          </div>
+          <div class="kv"><span>路径</span><b id="st-db-path-out" class="num">—</b></div>
+          <div class="kv"><span>有效点位</span><b id="st-db-valid" class="num">—</b></div>
+          <div class="kv"><span>频率范围 (GHz)</span><b id="st-db-freq" class="num">—</b></div>
+        </div>
+        <div class="card">
+          <h2>元数据</h2>
+          <pre id="st-db-meta" class="meta"></pre>
+        </div>
+      </section>
+
+      <!-- Studio Smith -->
+      <section class="page" id="page-studio-smith" hidden>
+        <h1>Smith 图查看器</h1>
+        <div class="card">
+          <div class="form-row">
+            <label>调谐频率 (GHz)</label>
+            <input id="st-smith-freq" class="num" type="number" step="0.000001" value="10" />
+            <button id="st-smith-refresh" class="btn primary">刷新</button>
+          </div>
+          <canvas id="smith-canvas" width="520" height="460"></canvas>
+          <div class="legend">
+            <span class="dot teal"></span> 有效负载 (DUT 面)
+            <span class="dot amber"></span> 目标
+            <span class="dot pink"></span> 选中预测
+          </div>
+        </div>
+      </section>
+
+      <!-- Studio Tuning -->
+      <section class="page" id="page-studio-tuning" hidden>
+        <h1>阻抗调谐</h1>
+        <div class="card">
+          <div class="form-row">
+            <label>频率 (GHz)</label>
+            <input id="st-tune-freq" class="num" type="number" step="0.000001" value="10" />
+            <label>目标 R (Ω)</label>
+            <input id="st-tune-r" class="num" type="number" value="50" />
+            <label>目标 X (Ω)</label>
+            <input id="st-tune-x" class="num" type="number" value="0" />
+            <label>容差 |ΔΓ|</label>
+            <input id="st-tune-tol" class="num" type="number" step="0.00001" value="0.05" />
+          </div>
+          <div class="form-row">
+            <label>调谐算法</label>
+            <select id="st-tune-method">
+              <option value="two-stage">两段式（一般搜索 → 梯度搜索 → 细网格）</option>
+              <option value="gradient">梯度搜索（插值模型局部寻优）</option>
+              <option value="general">一般搜索（仅最近校准点）</option>
+              <option value="nearest">最近邻查表（旧版）</option>
+            </select>
+            <label>插值层级策略</label>
+            <select id="st-tune-policy">
+              <option value="closest">最近三层（默认，查询被夹住）</option>
+              <option value="classic">原始规则（下 1 层 + 上 2 层）</option>
+            </select>
+            <label>Tune-To 模式 (F-21)</label>
+            <select id="st-tune-mode">
+              <option value="">沿用上次/算法</option>
+              <option value="closest">Closest（吸附到最近校准点）</option>
+              <option value="cursor">Cursor（在 Smith 光标处插值）</option>
+            </select>
+          </div>
+          <div class="btn-row wrap">
+            <button id="st-tune-search" class="btn primary">搜索最近候选</button>
+            <button id="st-tune-move" class="btn">移动到选中候选</button>
+            <button id="st-tune-verify" class="btn">验证当前阻抗</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>插值调谐结果</h2>
+          <div class="kv"><span>插值器</span><b id="st-tune-interp" class="num">—</b></div>
+          <div class="kv"><span>机械位置</span><b id="st-tune-position" class="num">—</b></div>
+          <div class="kv"><span>预测 Γ</span><b id="st-tune-gamma" class="num">—</b></div>
+          <div class="kv"><span>误差矢量 |ΔΓ|</span><b id="st-tune-error" class="num">—</b></div>
+          <table id="st-tune-stages">
+            <thead><tr><th>阶段</th><th>机械位置</th><th>预测 Γ</th><th>|ΔΓ|</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="btn-row">
+            <button id="st-tune-move-tuned" class="btn">移动到调谐结果</button>
+          </div>
+          <p class="hint">插值调谐在标定数据之上做推断，结果为<b>模型预测值</b>；
+            移动到该位置后请用「验证当前阻抗」实测复核。</p>
+        </div>
+        <div class="card">
+          <h2>候选结果</h2>
+          <table id="st-tune-table">
+            <thead><tr><th>序号</th><th>机械位置</th><th>预测 Γ</th><th>预测 Z (Ω)</th><th>|ΔΓ|</th><th>可达</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="st-tune-result" class="scale-msg"></div>
+      </section>
+
+      <!-- Studio Validation -->
+      <section class="page" id="page-studio-validation" hidden>
+        <h1>验证报告</h1>
+        <div class="card">
+          <p>采集 3 个 A→B→A 循环，比较全频段复 S11/S21。A、B 为首个与末个有效校准位置。结果均为模拟。</p>
+          <div class="btn-row">
+            <button id="st-validate" class="btn primary">运行模拟可重复性验证</button>
+          </div>
+          <div class="kv"><span>状态</span><b id="st-val-state">—</b></div>
+        </div>
+        <div class="card">
+          <h2>报告</h2>
+          <pre id="st-val-report" class="meta"></pre>
+        </div>
+        <div class="card">
+          <h2>插值验证闭环</h2>
+          <p>把调谐器移到一组<b>插值得到</b>的阻抗点（网格单元中心，而不是标定点本身），
+            用已校准的仪器实测，与模型预测比较<b>误差矢量</b>；超过容差即建议重新标定。
+            这一步会移动机器。</p>
+          <div class="form-row">
+            <label>验证点数</label>
+            <input id="st-iv-count" class="num" type="number" min="1" max="50" value="5" />
+            <label>容差 |ΔΓ|</label>
+            <input id="st-iv-tol" class="num" type="number" step="0.001" value="0.05" />
+            <label>选点策略</label>
+            <select id="st-iv-strategy">
+              <option value="coverage">覆盖最难处（Γ 平面空隙最大）</option>
+              <option value="random">均匀分散</option>
+            </select>
+            <label>频率 (GHz)</label>
+            <input id="st-iv-freq" class="num" type="number" step="0.000001" value="10" />
+          </div>
+          <div class="btn-row">
+            <button id="st-iv-run" class="btn primary">运行插值验证</button>
+          </div>
+          <div id="st-iv-msg" class="scale-msg"></div>
+          <div class="kv"><span>判定</span><b id="st-iv-verdict">—</b></div>
+          <div class="kv"><span>最大误差矢量</span><b id="st-iv-max" class="num">—</b></div>
+          <div class="kv"><span>平均误差矢量</span><b id="st-iv-mean" class="num">—</b></div>
+          <table id="st-iv-table">
+            <thead>
+              <tr><th>#</th><th>机械位置</th><th>预测 Γ</th><th>实测 Γ</th>
+                  <th>|ΔΓ|</th><th>幅度误差</th><th>相位误差</th><th>判定</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- P1 tools (0.4.1): reference planes / browser / export / ops /
+           repeatability / deviation card -->
+      <section class="page" id="page-p1-tools" hidden>
+        <h1>P1 工具箱 · 功能增强</h1>
+
+        <!-- F-10 reference planes -->
+        <div class="card">
+          <h2>F-10 参考面与 S2P 校验</h2>
+          <div class="form-row">
+            <label>参考面</label>
+            <select id="p1-rp-plane"></select>
+            <label>去嵌入 S2P 路径</label>
+            <input id="p1-rp-s2p" type="text" placeholder="可选，指向 .s2p" />
+          </div>
+          <div class="btn-row">
+            <button id="p1-rp-validate" class="btn primary">校验参考面设置</button>
+          </div>
+          <pre id="p1-rp-result" class="meta"></pre>
+        </div>
+
+        <!-- F-12 calibration browser -->
+        <div class="card">
+          <h2>F-12 校准浏览器</h2>
+          <div class="form-row">
+            <label>目录</label>
+            <input id="p1-br-dir" type="text" placeholder="含 *.h5 的目录" />
+            <label><input id="p1-br-recursive" type="checkbox" /> 递归</label>
+            <button id="p1-br-scan" class="btn primary">扫描</button>
+          </div>
+          <table id="p1-br-table">
+            <thead><tr><th>名称</th><th>Cal ID</th><th>有效点</th>
+              <th>|Γ|max</th><th>频率(GHz)</th><th>参考面</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="form-row">
+            <label>对比 A</label><select id="p1-br-a"></select>
+            <label>对比 B</label><select id="p1-br-b"></select>
+            <label>频率(GHz)</label>
+            <input id="p1-br-freq" class="num" type="number" step="0.000001" value="5" />
+            <button id="p1-br-compare" class="btn">对比 A/B</button>
+          </div>
+          <pre id="p1-br-result" class="meta"></pre>
+        </div>
+
+        <!-- F-13 export -->
+        <div class="card">
+          <h2>F-13 导出</h2>
+          <div class="form-row">
+            <label>格式</label>
+            <select id="p1-ex-fmt">
+              <option value="tef">.tef (调谐器表征文件)</option>
+              <option value="csv">.csv (原始数据)</option>
+              <option value="s2p">.s2p (单点)</option>
+              <option value="s2p_library">.s2p 库（每点一个）</option>
+              <option value="hdf5">HDF5 副本</option>
+            </select>
+            <label>输出路径</label>
+            <input id="p1-ex-path" type="text" placeholder="输出文件/目录" />
+            <button id="p1-ex-run" class="btn primary">导出当前库</button>
+          </div>
+          <pre id="p1-ex-result" class="meta"></pre>
+        </div>
+
+        <!-- F-14 library ops -->
+        <div class="card">
+          <h2>F-14 库后处理（写新库，源库只读）</h2>
+          <div class="form-row">
+            <label>操作</label>
+            <select id="p1-op-action">
+              <option value="truncate_gamma">按 |Γ| 截断</option>
+              <option value="truncate_travel">按机械行程截断</option>
+              <option value="reverse_probe">镜像某轴（反转探针）</option>
+              <option value="split_frequency">按频率拆分</option>
+              <option value="apply_fixture">施加/去嵌入夹具 S2P</option>
+            </select>
+            <label>gmax (|Γ|≤)</label>
+            <input id="p1-op-gmax" class="num" type="number" step="0.01" value="0.5" />
+            <label>轴</label>
+            <input id="p1-op-axis" type="text" value="X" />
+            <label>夹具 S2P</label>
+            <input id="p1-op-fx" type="text" placeholder="apply_fixture 用" />
+            <label>方向</label>
+            <select id="p1-op-dir">
+              <option value="embed">嵌入(embed)</option>
+              <option value="deembed">去嵌入(deembed)</option>
+            </select>
+            <label>输出路径</label>
+            <input id="p1-op-path" type="text" placeholder="新库 .h5" />
+            <button id="p1-op-run" class="btn primary">执行</button>
+          </div>
+          <pre id="p1-op-result" class="meta"></pre>
+        </div>
+
+        <!-- F-20 repeatability -->
+        <div class="card">
+          <h2>F-20 重复性验证</h2>
+          <p class="hint">粘贴测量列表 JSON：[{ "gamma_re":, "gamma_im":, "target_gamma_re":, "target_gamma_im":, "label": }]</p>
+          <textarea id="p1-rep-json" class="meta" rows="6"></textarea>
+          <div class="form-row">
+            <label>容差 |ΔΓ|</label>
+            <input id="p1-rep-tol" class="num" type="number" step="0.001" value="0.05" />
+            <button id="p1-rep-run" class="btn primary">分析</button>
+          </div>
+          <pre id="p1-rep-result" class="meta"></pre>
+        </div>
+
+        <!-- F-19 / F-24 deviation card -->
+        <div class="card">
+          <h2>F-19 目标-实测对照卡</h2>
+          <div class="form-row">
+            <label>预测 Γ re</label><input id="p1-dv-pg-re" class="num" type="number" step="0.0001" value="0.5" />
+            <label>预测 Γ im</label><input id="p1-dv-pg-im" class="num" type="number" step="0.0001" value="0" />
+            <label>实测 Γ re</label><input id="p1-dv-mg-re" class="num" type="number" step="0.0001" value="0.52" />
+            <label>实测 Γ im</label><input id="p1-dv-mg-im" class="num" type="number" step="0.0001" value="0.02" />
+            <label>容差 |ΔΓ|</label><input id="p1-dv-tol" class="num" type="number" step="0.001" value="0.05" />
+            <button id="p1-dv-run" class="btn primary">生成对照卡</button>
+          </div>
+          <pre id="p1-dv-result" class="meta"></pre>
+        </div>
+
+        <!-- P2 reference-plane shift -->
+        <div class="card">
+          <h2>P2 参考面平移（T 矩阵）</h2>
+          <p class="hint">
+            把库换算到另一个参考面：线路长度（走 e^(−2jβl) 的往返相位）或夹具 S2P。
+            源库只读，结果写入新库。
+          </p>
+          <div class="form-row">
+            <label>平移网络</label>
+            <select id="p2-rs-kind">
+              <option value="line">线路长度</option>
+              <option value="fixture">夹具 S2P</option>
+            </select>
+            <label>长度 (mm)</label>
+            <input id="p2-rs-len" class="num" type="number" step="0.001" value="1" />
+            <label>速度系数</label>
+            <input id="p2-rs-vf" class="num" type="number" step="0.01" value="0.66" />
+            <label>夹具 S2P</label>
+            <input id="p2-rs-s2p" type="text" placeholder="fixture 用" />
+            <label>方向</label>
+            <select id="p2-rs-dir">
+              <option value="deembed">去掉网络 (deembed)</option>
+              <option value="embed">加上网络 (embed)</option>
+            </select>
+            <label>目标参考面</label>
+            <select id="p2-rs-plane">
+              <option value="standard">Standard</option>
+              <option value="on_wafer">On-Wafer</option>
+              <option value="pc_board">PC-board</option>
+              <option value="connectorized">Connectorized</option>
+              <option value="waveguide">Waveguide</option>
+              <option value="in_situ">In-Situ</option>
+            </select>
+            <label>输出路径</label>
+            <input id="p2-rs-path" type="text" placeholder="新库 .h5" />
+            <button id="p2-rs-run" class="btn primary">执行平移</button>
+          </div>
+          <pre id="p2-rs-result" class="meta"></pre>
+        </div>
+
+        <!-- P2 automatic repeatability -->
+        <div class="card">
+          <h2>P2 自动 A→B→A 采集（会驱动机器）</h2>
+          <p class="hint">
+            用库里首末两个有效点做 A→B→A 往返，每循环测 3 段。
+            <strong>会实际移动机械</strong>，请确认回零与行程后使用。
+          </p>
+          <div class="form-row">
+            <label>循环次数</label>
+            <input id="p2-ra-rep" class="num" type="number" step="1" min="1" max="20" value="3" />
+            <label>频率 (GHz)</label>
+            <input id="p2-ra-freq" class="num" type="number" step="0.000001" value="5" />
+            <label>容差 |ΔΓ|</label>
+            <input id="p2-ra-tol" class="num" type="number" step="0.001" value="0.05" />
+            <button id="p2-ra-run" class="btn primary">开始采集</button>
+          </div>
+          <pre id="p2-ra-result" class="meta"></pre>
+        </div>
+
+        <!-- P2 pattern editor -->
+        <div class="card">
+          <h2>P2 目标图案</h2>
+          <p class="hint">
+            图案是「要去哪里」的清单。可以手填 Γ，或用等 |Γ| 圆 / 径向扫描生成。
+          </p>
+          <div class="form-row">
+            <label>名称</label><input id="p2-pt-name" type="text" placeholder="例如 0.8 圆 8 点" />
+            <label>类型</label>
+            <select id="p2-pt-kind">
+              <option value="points">手动点列</option>
+              <option value="circle">等 |Γ| 圆</option>
+              <option value="radial">径向扫描</option>
+            </select>
+            <label>半径</label><input id="p2-pt-radius" class="num" type="number" step="0.01" value="0.8" />
+            <label>起始相位</label><input id="p2-pt-p0" class="num" type="number" step="1" value="0" />
+            <label>终止相位</label><input id="p2-pt-p1" class="num" type="number" step="1" value="360" />
+            <label>点数</label><input id="p2-pt-count" class="num" type="number" step="1" min="1" value="8" />
+            <label>r 从</label><input id="p2-pt-r0" class="num" type="number" step="0.01" value="0" />
+            <label>r 到</label><input id="p2-pt-r1" class="num" type="number" step="0.01" value="0.8" />
+            <label>相位</label><input id="p2-pt-phase" class="num" type="number" step="1" value="0" />
+          </div>
+          <div class="form-row">
+            <label>手动点列</label>
+            <input id="p2-pt-points" type="text" placeholder="0.1,0.2  0.3,0.4" />
+            <button id="p2-pt-save" class="btn primary">保存图案</button>
+            <button id="p2-pt-list" class="btn">列出图案</button>
+          </div>
+          <div id="p2-pt-list-box"></div>
+          <pre id="p2-pt-result" class="meta"></pre>
+        </div>
+
+        <!-- P2 audit -->
+        <div class="card">
+          <h2>P2 报告审计</h2>
+          <p class="hint">
+            每个校准库的库头、点数与文件 SHA-256，库里带的验证记录，以及操作日志里的故障。
+            只读。
+          </p>
+          <div class="form-row">
+            <label>库目录</label>
+            <input id="p2-au-dir" type="text" placeholder="含 *.h5 的目录" />
+            <button id="p2-au-run" class="btn primary">审计</button>
+          </div>
+          <div id="p2-au-box"></div>
+        </div>
+      </section>
+
+      <!-- VNA control (real, TCP/IP SCPI) -->
+      <section class="page" id="page-vna" hidden>
+        <h1>矢网控制 (VNA) · TCP/IP</h1>
+        <div class="card">
+          <h2>连接</h2>
+          <div class="form-row">
+            <label>厂商</label>
+            <select id="vna-vendor"></select>
+            <label>IP</label>
+            <input id="vna-ip" type="text" placeholder="192.168.0.50" />
+            <label>端口</label>
+            <input id="vna-port" class="num" type="number" value="5025" />
+            <label>超时 (ms)</label>
+            <input id="vna-timeout" class="num" type="number" value="10000" />
+          </div>
+          <div class="form-row">
+            <label>起始频率 (Hz)</label>
+            <input id="vna-start" class="num" type="number" value="1000000000" />
+            <label>终止频率 (Hz)</label>
+            <input id="vna-stop" class="num" type="number" value="20000000000" />
+            <label>频点数</label>
+            <input id="vna-points" class="num" type="number" min="1" value="401" />
+          </div>
+          <div class="form-row">
+            <label>功率 (dBm)</label>
+            <input id="vna-power" class="num" type="number" value="-10" />
+            <label>中频带宽 (Hz)</label>
+            <input id="vna-ifbw" class="num" type="number" value="1000" />
+          </div>
+          <div class="btn-row wrap">
+            <button id="vna-connect" class="btn primary">连接并配置</button>
+            <button id="vna-disconnect" class="btn">断开</button>
+            <button id="vna-idn" class="btn">读取 IDN</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>连接状态</h2>
+          <div class="kv"><span>状态</span><b id="vna-state">未连接</b></div>
+          <div class="kv"><span>识别厂商</span><b id="vna-vendor-out">—</b></div>
+          <div class="kv"><span>IDN</span><b id="vna-idn-out" class="num">—</b></div>
+          <div class="kv"><span>最近错误</span><b id="vna-error" class="num">—</b></div>
+        </div>
+        <div class="card">
+          <h2>采集</h2>
+          <div class="btn-row wrap">
+            <button id="vna-set-sweep" class="btn">下发扫频设置</button>
+            <button id="vna-set-power" class="btn">下发功率/中频</button>
+            <button id="vna-trigger" class="btn primary">单次扫描并读取</button>
+          </div>
+          <div id="vna-msg" class="scale-msg"></div>
+          <canvas id="vna-canvas" width="640" height="320"></canvas>
+          <table id="vna-table">
+            <thead><tr><th>频率 (Hz)</th><th>|S11| dB</th><th>|S21| dB</th><th>|S12| dB</th><th>|S22| dB</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="hint">所有矢量网络分析仪均通过 TCP/IP（SCPI，默认端口 5025）直接控制，无需安装 VISA 运行时。支持的厂商：罗德(R&S)、Keysight E5071C(ENA)、Keysight N5247 PNA-X、思仪(AV3672)、安立(VectorStar/ShockLine)。连不上请先确认：① 网段互通、② 仪器已开启 SCPI 且允许 LAN 控制、③ 防火墙放行 5025。</p>
+      </section>
+      <!-- 操作日志 -->
+      <section class="page" id="page-oplog" hidden>
+        <h1>操作日志</h1>
+        <div class="card">
+          <div class="form-row">
+            <label>分类</label>
+            <select id="log-category">
+              <option value="">全部</option>
+              <option value="通讯">通讯</option>
+              <option value="运动">运动</option>
+              <option value="回零">回零</option>
+              <option value="参数">参数</option>
+              <option value="急停">急停</option>
+              <option value="标度">标度</option>
+              <option value="矢网">矢网</option>
+              <option value="校准">校准</option>
+              <option value="系统">系统</option>
+            </select>
+            <label>级别</label>
+            <select id="log-level">
+              <option value="">全部</option>
+              <option value="info">info</option>
+              <option value="warn">warn</option>
+              <option value="error">error</option>
+            </select>
+            <label>条数</label>
+            <input id="log-limit" class="num" type="number" min="10" max="2000" value="200" />
+          </div>
+          <div class="btn-row wrap">
+            <button id="log-refresh" class="btn">刷新</button>
+            <button id="log-clear" class="btn">清空</button>
+            <button id="log-export" class="btn">导出 JSON</button>
+          </div>
+          <div id="log-msg" class="scale-msg"></div>
+        </div>
+        <div class="card">
+          <h2>记录</h2>
+          <table id="log-table">
+            <thead>
+              <tr><th>时间</th><th>分类</th><th>动作</th><th>详情</th><th>级别</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="hint">日志记录运动、回零、标度自检、急停、参数写入、仪器连接与校准运行等全部操作，
+          是排查"到底下发了什么指令、控制器回了什么"的依据。内存保留最近 2000 条。</p>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

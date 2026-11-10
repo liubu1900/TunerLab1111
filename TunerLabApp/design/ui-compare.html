@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>TunerLab 设备页 · 方案 5 逐页对比</title>
+<style>
+body{margin:0;background:#eef2f8;color:#16233a;
+  font-family:"Noto Sans SC","Microsoft YaHei",sans-serif;font-weight:400;font-size:13px}
+.wrap{max-width:1660px;margin:0 auto;padding:26px 22px 60px}
+h1{font-size:20px;margin:0 0 6px;font-weight:700}
+.lead{color:#5b6b7c;font-size:12.5px;font-weight:300;line-height:1.8;margin:0 0 22px}
+section{background:#fff;border:1px solid #e6ecf5;border-radius:12px;padding:18px;
+  margin-bottom:20px;box-shadow:0 2px 6px rgba(16,27,45,.04)}
+h2{font-size:15px;margin:0 0 12px;font-weight:700}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+figure{margin:0}
+figure img{width:100%;display:block;border:1px solid #e6ecf5;border-radius:8px}
+figcaption{font-size:11.5px;color:#7b8a99;padding-top:6px;font-weight:300}
+table.diff{width:100%;border-collapse:collapse;margin-top:14px;font-size:12.5px}
+table.diff td{border-top:1px solid #eef2f8;padding:7px 10px;vertical-align:top}
+table.diff td:first-child{width:96px;color:#8496ad;font-weight:500;white-space:nowrap}
+.note{background:#fff8e6;border:1px solid #f0d9a8;border-radius:8px;padding:12px 14px;
+  font-size:12.5px;color:#8a5a00;font-weight:300;line-height:1.9}
+</style></head><body><div class="wrap">
+<h1>设备四页 · 方案 5 逐页对比</h1>
+<p class="lead">左：已确认的 HTML 原型；右：同一 1340×880 窗口下的实际程序截图。
+逐页核对并返工后列出差异处理结果。</p>
+
+    <section>
+      <h2>通讯设置</h2>
+      <div class="pair">
+        <figure><img src="shots/scheme-5-comm.png"><figcaption>方案 5（HTML 原型）</figcaption></figure>
+        <figure><img src="shots/app-comm.png"><figcaption>TunerLab 实现（1340×880）</figcaption></figure>
+      </div>
+      <table class="diff"><tbody><tr><td>侧栏</td><td>方案为 64 px 图标轨；实现按你的要求保留 236 px 两级导航（设备/校准/记录 + 二级页面）</td></tr><tr><td>顶栏</td><td>56 px：17 px/700 标题、12 px/300 面包屑；右侧改为「控制器 / 矢网」两枚独立徽标，各自显示连接状态与 IP</td></tr><tr><td>字号</td><td>全部改为像素字号：正文 13、标签 11.5/400 #8496ad、值 12.5/500、提示 11.5/300</td></tr><tr><td>卡片</td><td>圆角 12、1 px #e6ecf5、投影 0 2 6 rgba(16,27,45,.04)</td></tr><tr><td>开关</td><td>34×19 自绘 ToggleSwitch（#dbe4f0 轨道 / 蓝紫渐变 on、白钮、200 ms 缓动）；整行可点，勾选即写盘</td></tr><tr><td>输入</td><td>数字框上下箭头已移除，与方案的纯文本输入一致</td></tr></tbody></table>
+    </section>
+    <section>
+      <h2>轴移动控制</h2>
+      <div class="pair">
+        <figure><img src="shots/scheme-5-motion.png"><figcaption>方案 5（HTML 原型）</figcaption></figure>
+        <figure><img src="shots/app-motion.png"><figcaption>TunerLab 实现（1340×880）</figcaption></figure>
+      </div>
+      <table class="diff"><tbody><tr><td>竖条</td><td>自绘 AxisBar：16×146、#f2f6fc 轨道、圆角 8、蓝→紫竖向渐变，180 ms 缓动</td></tr><tr><td>卡片</td><td>内边距 12、头部间距 8、名称 13.5/600、指示灯 9 px（绿 #20b57f / 红 #e05e52）</td></tr><tr><td>行距</td><td>指令/反馈 11.5 px（标签 #8496ad、值 #22304a），控件间距 6</td></tr><tr><td>控件</td><td>输入与按钮 12.5 px、高 30；定位为蓝紫渐变主按钮，回零/标度自检为描边</td></tr><tr><td>操作栏</td><td>去掉原「全局操作」组标题，改为方案 5 的无标题白卡；顺序 急停 → 停止 → 复位急停 → 复位运动故障，急停加宽至 196 px 并标注 EMERGENCY STOP</td></tr></tbody></table>
+    </section>
+    <section>
+      <h2>轴参数设定</h2>
+      <div class="pair">
+        <figure><img src="shots/scheme-5-params.png"><figcaption>方案 5（HTML 原型）</figcaption></figure>
+        <figure><img src="shots/app-params.png"><figcaption>TunerLab 实现（1340×880）</figcaption></figure>
+      </div>
+      <table class="diff"><tbody><tr><td>工具条</td><td>六个按钮 + 右侧“4 轴 · 13 项 · 未修改”，字号 11.5/300</td></tr><tr><td>表格</td><td>单元格 12.5、表头 11.5/600 #6b7d95，行高 28</td></tr><tr><td>说明卡</td><td>坐标基准 / 回零策略 / 保护 三张卡，圆角 12、内边距 16/12</td></tr><tr><td>留白</td><td>页面 22/0/22/18，卡片间距 14</td></tr></tbody></table>
+    </section>
+    <section>
+      <h2>矢网控制</h2>
+      <div class="pair">
+        <figure><img src="shots/scheme-5-vna.png"><figcaption>方案 5（HTML 原型）</figcaption></figure>
+        <figure><img src="shots/app-vna.png"><figcaption>TunerLab 实现（1340×880）</figcaption></figure>
+      </div>
+      <table class="diff"><tbody><tr><td>控制栏</td><td>固定 330 px，可纵向滚动；三张卡与方案一致</td></tr><tr><td>输入</td><td>数字框无箭头，频率 4 位小数、其余同方案</td></tr><tr><td>迹线</td><td>2×2 白卡 + 圆点 + 名称/单位，空态显示“尚无扫描数据”</td></tr><tr><td>表格</td><td>频率 / Δf / 四路 S 参数，11.5 px，实测与设定不一致红字提示</td></tr></tbody></table>
+    </section>
+<section>
+      <h2>本轮修复验证</h2>
+      <div class="pair">
+        <figure><img src="shots/app-comm-connected.png"><figcaption>顶栏双徽标：控制器 192.168.0.11 · 矢网 192.168.0.50</figcaption></figure>
+        <figure><img src="shots/app-vna-cursor.png"><figcaption>四路联动光标：悬停 2 GHz，四个 Trace 同时出竖线与读数</figcaption></figure>
+        <figure><img src="shots/app-motion-scale.png"><figcaption>标度自检结果卡：比值、当前 UNITS 与「采纳并写入修正后的 UNITS」按钮</figcaption></figure>
+      </div>
+      <table class="diff"><tbody>
+        <tr><td>徽标</td><td>连接状态变化即刷新（此前只在启动时写一次，出现「已连接却显示未连接」）；控制器与矢网各一枚，分别显示各自 IP 与固件/IDN 提示</td></tr>
+        <tr><td>光标</td><td>TracePlot 发出 cursor_moved(Hz)，VNA 页广播到四图；各图按自身曲线取最近点并显示该点读数，60 ms 防抖避免跨图时闪烁</td></tr>
+        <tr><td>开关</td><td>改用自绘 ToggleSwitch（34×19、200 ms 缓动），修掉 QSS 贴图在缩放桌面下只剩半圆弧的问题；整行（开关 + 文案）均可点击</td></tr>
+        <tr><td>操作栏</td><td>急停最左、196 px 宽、浅红底，标注 EMERGENCY STOP；其后为停止 / 复位急停 / 复位运动故障，右侧行程提示 11.5 px</td></tr>
+        <tr><td>标度自检</td><td>结果卡补回（原先两个控件在页面重建时被删，点击即报 C++ object deleted）；出结果时自动滚入视野，通过时只显示「一致」，偏离时给出可点的 UNITS 修正按钮</td></tr>
+      </tbody></table>
+    </section>
+<div class="note"><b>无法做到“零偏差”的三处（技术边界，已尽量逼近）</b><br>
+1. 左侧导航：原型是 64 px 图标轨；按你的要求改成 236 px 两级导航，宽度与层级必然不同。<br>
+2. 文本渲染：Chromium 与 Qt 的字体整形/字距算法不同，同字号下个别字形宽度会差 1–2 px；<br>
+3. 原生控件（下拉框、表格滚动条、焦点框）由系统主题绘制，样式已尽量覆盖，仍非浏览器渲染。<br>
+其余结构、字号、字重、颜色、圆角、间距、开关、竖条均已按方案 5 的数值实现。</div>
+</div></body></html>

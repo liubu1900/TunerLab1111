@@ -1,0 +1,9 @@
+# Runtime dependencies of the TunerLab desktop shell.
+# numpy/scipy/h5py are also required by the original project; PySide6 drives the UI.
+numpy>=2.0
+scipy>=1.13
+h5py>=3.10
+PySide6>=6.7
+
+# Build-only (not needed to run from source):
+#   pyinstaller>=6.6

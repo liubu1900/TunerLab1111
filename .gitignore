@@ -1,0 +1,46 @@
+# --- Python caches ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtual environment (442M, regenerated from requirements) ---
+.venv/
+venv/
+env/
+
+# --- PyInstaller build / distribution outputs (generated, large) ---
+build/
+build_*/
+dist/
+dist_*/
+*.spec.bak
+
+# --- Build / smoke logs ---
+*.log
+*.err
+*.out
+build_log*.txt
+TunerLabApp/packaging/build_log*.txt
+
+# --- Edge browser temp profile from design preview ---
+TunerLabApp/design/.edgetmp/
+
+# --- Generated measurement / calibration data (not source) ---
+*.h5
+*.hdf5
+*.cal
+# keep small mock / example fixtures so the repo is self-contained
+!TunerLab/examples/*.h5
+!TunerLab/calibrations/*.h5
+
+# --- Project-internal memory & editor config (not for public repo) ---
+.workbuddy/
+.idea/
+.vscode/
+
+# --- OS ---
+Thumbs.db
+Desktop.ini

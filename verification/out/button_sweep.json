@@ -1,0 +1,2262 @@
+{
+  "controller_connected": false,
+  "with_motion": true,
+  "results": [
+    {
+      "page": "studio-overview",
+      "button": "刷新",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-overview",
+      "button": "去布点与设置",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-overview",
+      "button": "去采集运行",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-setup",
+      "button": "1  参考面与仪器",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-setup",
+      "button": "2  运动与行程",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-setup",
+      "button": "3  频率方案",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-setup",
+      "button": "4  布点计划",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-setup",
+      "button": "5  检查与建库",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-setup",
+      "button": "浏览…",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "QFileDialog:选择去嵌入 S2P/",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-setup",
+      "button": "校验 S2P 覆盖",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-setup",
+      "button": "← 上一步",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-setup",
+      "button": "下一步 →",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-run",
+      "button": "开始 / 继续",
+      "status_before": "",
+      "status_after": "启动采集失败: create or open a calibration task first",
+      "dialogs": "QMessageBox:启动采集失败/RuntimeError: create or open a calibration task first",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "DIALOG"
+    },
+    {
+      "page": "studio-run",
+      "button": "暂停",
+      "status_before": "启动采集失败: create or open a calibration task first",
+      "status_after": "暂停失败: no calibration task",
+      "dialogs": "QMessageBox:暂停失败/RuntimeError: no calibration task",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "DIALOG"
+    },
+    {
+      "page": "studio-run",
+      "button": "取消",
+      "status_before": "暂停失败: no calibration task",
+      "status_after": "取消失败: no calibration task",
+      "dialogs": "QMessageBox:取消失败/RuntimeError: no calibration task",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "DIALOG"
+    },
+    {
+      "page": "studio-db",
+      "button": "打开校准库…",
+      "status_before": "取消失败: no calibration task",
+      "status_after": "取消失败: no calibration task",
+      "dialogs": "QFileDialog:打开校准库/",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-db",
+      "button": "打开所在文件夹",
+      "status_before": "取消失败: no calibration task",
+      "status_after": "取消失败: no calibration task",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-browser",
+      "button": "[库目录] 浏览…",
+      "status_before": "取消失败: no calibration task",
+      "status_after": "取消失败: no calibration task",
+      "dialogs": "QFileDialog:选择校准库目录/",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-browser",
+      "button": "[库目录] 扫描",
+      "status_before": "取消失败: no calibration task",
+      "status_after": "扫描完成: 3 个库",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-browser",
+      "button": "对比选中的两个库",
+      "status_before": "扫描完成: 3 个库",
+      "status_after": "扫描完成: 3 个库",
+      "dialogs": "QMessageBox:对比/请在表格中用 Ctrl / Shift 选中两个库",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-browser",
+      "button": "导出…",
+      "status_before": "扫描完成: 3 个库",
+      "status_after": "扫描完成: 3 个库",
+      "dialogs": "_ExportDialog:导出校准库/",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-browser",
+      "button": "派生新库…",
+      "status_before": "扫描完成: 3 个库",
+      "status_after": "扫描完成: 3 个库",
+      "dialogs": "_DeriveDialog:从校准库派生新库/",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-pattern",
+      "button": "生成图案",
+      "status_before": "扫描完成: 3 个库",
+      "status_after": "已生成 0 个点",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-pattern",
+      "button": "保存图案…",
+      "status_before": "已生成 0 个点",
+      "status_after": "已生成 0 个点",
+      "dialogs": "QMessageBox:保存图案/图案还没有点",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-pattern",
+      "button": "清空",
+      "status_before": "已生成 0 个点",
+      "status_after": "图案已清空",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-pattern",
+      "button": "对照校准库",
+      "status_before": "图案已清空",
+      "status_after": "图案已清空",
+      "dialogs": "QMessageBox:对照校准库/图案还没有点",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-pattern",
+      "button": "载入",
+      "status_before": "图案已清空",
+      "status_after": "图案已清空",
+      "dialogs": "QMessageBox:载入图案/请先在列表里选一个图案",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-pattern",
+      "button": "删除",
+      "status_before": "图案已清空",
+      "status_after": "图案已清空",
+      "dialogs": "QMessageBox:删除图案/请先在列表里选一个图案",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-smith",
+      "button": "刷新",
+      "status_before": "频率已对齐到校准库频带 5.000000–5.000000 GHz",
+      "status_after": "频率已对齐到校准库频带 5.000000–5.000000 GHz",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-smith",
+      "button": "搜索对应点位",
+      "status_before": "频率已对齐到校准库频带 5.000000–5.000000 GHz",
+      "status_after": "频率已对齐到校准库频带 5.000000–5.000000 GHz",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-smith",
+      "button": "移动并实测验证",
+      "status_before": "频率已对齐到校准库频带 5.000000–5.000000 GHz",
+      "status_after": "频率已对齐到校准库频带 5.000000–5.000000 GHz",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-tune",
+      "button": "搜索候选",
+      "status_before": "频率已对齐到校准库频带 5.000000–5.000000 GHz",
+      "status_after": "搜索完成: 5 个候选",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 通讯/连接控制器: 192.168.0.11 · 固件 2.9600",
+        "info 校准/初始化实机运动: 行程 X (0.0, 380.0) · Z (0.0, 10.0) · 安全 Z 0.0 · 已回零 ['X', 'Z1', 'Z2', 'Z3']",
+        "info 校准/阻抗调谐: two-stage · 目标 Γ +0.0000+0.0000j · 误差 0.000001"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-tune",
+      "button": "移动到选中候选",
+      "status_before": "搜索完成: 5 个候选",
+      "status_after": "已移动到选中候选",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 260.7644,
+        "Z1": 2.0,
+        "Z2": 6.0,
+        "Z3": 4.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-tune",
+      "button": "移动到插值结果",
+      "status_before": "已移动到选中候选",
+      "status_after": "已移动到插值位置",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 通讯/连接控制器: 192.168.0.11 · 固件 2.9600",
+        "info 校准/初始化实机运动: 行程 X (0.0, 380.0) · Z (0.0, 10.0) · 安全 Z 0.0 · 已回零 ['X', 'Z1', 'Z2', 'Z3']",
+        "info 校准/阻抗调谐: two-stage · 目标 Γ +0.0000+0.0000j · 误差 0.000001",
+        "info 运动/移动到调谐结果: 150.0776 | 1.9601 | 6.1925 | 3.9910"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 260.7644,
+        "Z1": 2.0,
+        "Z2": 6.0,
+        "Z3": 4.0
+      },
+      "positions_after": {
+        "X": 150.0776,
+        "Z1": 1.96,
+        "Z2": 6.1924,
+        "Z3": 3.991
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-tune",
+      "button": "实测验证当前位置",
+      "status_before": "已移动到插值位置",
+      "status_after": "实测 |ΔΓ| = 0.241643",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 150.0776,
+        "Z1": 1.96,
+        "Z2": 6.1924,
+        "Z3": 3.991
+      },
+      "positions_after": {
+        "X": 150.0776,
+        "Z1": 1.96,
+        "Z2": 6.1924,
+        "Z3": 3.991
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-validation",
+      "button": "[插值验证] 运行插值验证",
+      "status_before": "实测 |ΔΓ| = 0.241643",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 150.0776,
+        "Z1": 1.96,
+        "Z2": 6.1924,
+        "Z3": 3.991
+      },
+      "positions_after": {
+        "X": 225.2056,
+        "Z1": 5.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-validation",
+      "button": "[插值验证] 运行重复性验证 (A→B→A ×3)",
+      "status_before": "",
+      "status_after": "启动重复性验证失败: calibration is validating_interpolation; wait for it to finish or cancel before starting a validation",
+      "dialogs": "QMessageBox:启动重复性验证失败/RuntimeError: calibration is validating_interpolation; wait for it to finish or cancel before starting a validation",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 225.2056,
+        "Z1": 5.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 225.2056,
+        "Z1": 5.0,
+        "Z2": 3.0,
+        "Z3": 1.0
+      },
+      "result": "DIALOG"
+    },
+    {
+      "page": "studio-validation",
+      "button": "自动 A→B→A 采集（会驱动机器）",
+      "status_before": "启动重复性验证失败: calibration is validating_interpolation; wait for it to finish or cancel before starting a validation",
+      "status_after": "",
+      "dialogs": "QMessageBox:自动重复性采集确认/即将驱动机器做 A→B→A 往返，共 3 个循环、9 次测量。\n\nA 点取库里第一个有效点，B 点取最后一个有效点，因此机械行程较长。\n\n请确认：\n· 四轴已回零\n· 急停可用、行程内无干涉\n· 探针处于安全高度\n\n是否继续？",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 225.2056,
+        "Z1": 5.0,
+        "Z2": 3.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 343.7348,
+        "Z1": 5.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-validation",
+      "button": "分析重复性",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 343.7348,
+        "Z1": 5.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 177.794,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-validation",
+      "button": "保存报告 JSON…",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "QFileDialog:保存验证报告/",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 177.794,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-audit",
+      "button": "选择目录",
+      "status_before": "",
+      "status_after": "",
+      "dialogs": "QFileDialog:选择校准库目录/",
+      "exceptions": [],
+      "logs": [
+        "info 通讯/连接控制器: 192.168.0.11 · 固件 2.9600",
+        "info 校准/初始化实机运动: 行程 X (0.0, 380.0) · Z (0.0, 10.0) · 安全 Z 0.0 · 已回零 ['X', 'Z1', 'Z2', 'Z3']",
+        "info 校准/阻抗调谐: two-stage · 目标 Γ +0.0000+0.0000j · 误差 0.000001",
+        "info 运动/移动到调谐结果: 150.0776 | 1.9601 | 6.1925 | 3.9910",
+        "warn 校准/插值验证: 5 / 5 个插值点超出容差 0.05（最大误差矢量 1.536915），建议重新标定。误差以幅度分量为主（幅度 0.1133 vs 相位 -0.2597）：先怀疑标定点太稀、探针深度标度或增益不对。"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-audit",
+      "button": "刷新审计",
+      "status_before": "",
+      "status_after": "审计完成",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "studio-audit",
+      "button": "导出审计 JSON…",
+      "status_before": "审计完成",
+      "status_after": "审计完成",
+      "dialogs": "QFileDialog:导出审计报告/",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-comm",
+      "button": "连接",
+      "status_before": "审计完成",
+      "status_after": "审计完成",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-comm",
+      "button": "断开",
+      "result": "DEFER",
+      "note": "会断开链路，扫描结束后再测"
+    },
+    {
+      "page": "hw-comm",
+      "button": "广播搜索",
+      "status_before": "审计完成",
+      "status_after": "审计完成",
+      "dialogs": "QMessageBox:搜索控制器/192.168.0.11 可连接，固件 2.9600",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-comm",
+      "button": "保存通讯设置",
+      "status_before": "审计完成",
+      "status_after": "审计完成",
+      "dialogs": "QMessageBox:保存成功/设置已保存到\nC:\\Users\\Eoulu\\AppData\\Roaming\\TunerLab\\settings.json",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-comm",
+      "button": "打开所在文件夹",
+      "status_before": "审计完成",
+      "status_after": "审计完成",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "急停  EMERGENCY STOP",
+      "status_before": "审计完成",
+      "status_after": "急停已触发，软件状态已锁定，需复位后重新回零",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 通讯/连接控制器: 192.168.0.11 · 固件 2.9600",
+        "info 校准/初始化实机运动: 行程 X (0.0, 380.0) · Z (0.0, 10.0) · 安全 Z 0.0 · 已回零 ['X', 'Z1', 'Z2', 'Z3']",
+        "info 校准/阻抗调谐: two-stage · 目标 Γ +0.0000+0.0000j · 误差 0.000001",
+        "info 运动/移动到调谐结果: 150.0776 | 1.9601 | 6.1925 | 3.9910",
+        "warn 校准/插值验证: 5 / 5 个插值点超出容差 0.05（最大误差矢量 1.536915），建议重新标定。误差以幅度分量为主（幅度 0.1133 vs 相位 -0.2597）：先怀疑标定点太稀、探针深度标度或增益不对。",
+        "error 急停/触发急停: 软件急停已锁存，需复位后重新回零"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "停止",
+      "status_before": "急停已触发，软件状态已锁定，需复位后重新回零",
+      "status_after": "已发送停止指令",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 校准/初始化实机运动: 行程 X (0.0, 380.0) · Z (0.0, 10.0) · 安全 Z 0.0 · 已回零 ['X', 'Z1', 'Z2', 'Z3']",
+        "info 校准/阻抗调谐: two-stage · 目标 Γ +0.0000+0.0000j · 误差 0.000001",
+        "info 运动/移动到调谐结果: 150.0776 | 1.9601 | 6.1925 | 3.9910",
+        "warn 校准/插值验证: 5 / 5 个插值点超出容差 0.05（最大误差矢量 1.536915），建议重新标定。误差以幅度分量为主（幅度 0.1133 vs 相位 -0.2597）：先怀疑标定点太稀、探针深度标度或增益不对。",
+        "error 急停/触发急停: 软件急停已锁存，需复位后重新回零",
+        "warn 运动/停止: 已向全部轴发送停止指令"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "复位急停",
+      "status_before": "已发送停止指令",
+      "status_after": "急停已复位，请重新回零后再运动",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 校准/阻抗调谐: two-stage · 目标 Γ +0.0000+0.0000j · 误差 0.000001",
+        "info 运动/移动到调谐结果: 150.0776 | 1.9601 | 6.1925 | 3.9910",
+        "warn 校准/插值验证: 5 / 5 个插值点超出容差 0.05（最大误差矢量 1.536915），建议重新标定。误差以幅度分量为主（幅度 0.1133 vs 相位 -0.2597）：先怀疑标定点太稀、探针深度标度或增益不对。",
+        "error 急停/触发急停: 软件急停已锁存，需复位后重新回零",
+        "warn 运动/停止: 已向全部轴发送停止指令",
+        "warn 急停/复位急停: 急停已复位，请重新回零后再运动"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "复位运动故障",
+      "status_before": "急停已复位，请重新回零后再运动",
+      "status_after": "运动故障已复位，请重新回零后再运动",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 运动/移动到调谐结果: 150.0776 | 1.9601 | 6.1925 | 3.9910",
+        "warn 校准/插值验证: 5 / 5 个插值点超出容差 0.05（最大误差矢量 1.536915），建议重新标定。误差以幅度分量为主（幅度 0.1133 vs 相位 -0.2597）：先怀疑标定点太稀、探针深度标度或增益不对。",
+        "error 急停/触发急停: 软件急停已锁存，需复位后重新回零",
+        "warn 运动/停止: 已向全部轴发送停止指令",
+        "warn 急停/复位急停: 急停已复位，请重新回零后再运动",
+        "warn 系统/复位运动故障: 已清除运动故障锁存，需重新回零"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "点动 −",
+      "status_before": "运动故障已复位，请重新回零后再运动",
+      "status_after": "MotionError: home the axes before motion; not homed: X",
+      "dialogs": "QMessageBox:操作失败/home the axes before motion; not homed: X\n\n建议：\n· 先点该轴的「回零」；若轴还在运动，等它停下来再回零。",
+      "exceptions": [],
+      "logs": [
+        "warn 校准/插值验证: 5 / 5 个插值点超出容差 0.05（最大误差矢量 1.536915），建议重新标定。误差以幅度分量为主（幅度 0.1133 vs 相位 -0.2597）：先怀疑标定点太稀、探针深度标度或增益不对。",
+        "error 急停/触发急停: 软件急停已锁存，需复位后重新回零",
+        "warn 运动/停止: 已向全部轴发送停止指令",
+        "warn 急停/复位急停: 急停已复位，请重新回零后再运动",
+        "warn 系统/复位运动故障: 已清除运动故障锁存，需重新回零",
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "DIALOG"
+    },
+    {
+      "page": "hw-motion",
+      "button": "点动 +",
+      "status_before": "MotionError: home the axes before motion; not homed: X",
+      "status_after": "MotionError: home the axes before motion; not homed: X",
+      "dialogs": "QMessageBox:操作失败/home the axes before motion; not homed: X\n\n建议：\n· 先点该轴的「回零」；若轴还在运动，等它停下来再回零。",
+      "exceptions": [],
+      "logs": [
+        "error 急停/触发急停: 软件急停已锁存，需复位后重新回零",
+        "warn 运动/停止: 已向全部轴发送停止指令",
+        "warn 急停/复位急停: 急停已复位，请重新回零后再运动",
+        "warn 系统/复位运动故障: 已清除运动故障锁存，需重新回零",
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X",
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "DIALOG"
+    },
+    {
+      "page": "hw-motion",
+      "button": "定位",
+      "status_before": "MotionError: home the axes before motion; not homed: X",
+      "status_after": "MotionError: home the axes before motion; not homed: X",
+      "dialogs": "QMessageBox:操作失败/home the axes before motion; not homed: X\n\n建议：\n· 先点该轴的「回零」；若轴还在运动，等它停下来再回零。",
+      "exceptions": [],
+      "logs": [
+        "warn 运动/停止: 已向全部轴发送停止指令",
+        "warn 急停/复位急停: 急停已复位，请重新回零后再运动",
+        "warn 系统/复位运动故障: 已清除运动故障锁存，需重新回零",
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X",
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X",
+        "error 运动/绝对定位: MotionError: home the axes before motion; not homed: X"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "DIALOG"
+    },
+    {
+      "page": "hw-motion",
+      "button": "回零",
+      "status_before": "MotionError: home the axes before motion; not homed: X",
+      "status_after": "X 回零完成：OP0 输出脉冲，位移 -248908 µm，指令位置已清零，原点输入 IN16=ON 已确认",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "warn 急停/复位急停: 急停已复位，请重新回零后再运动",
+        "warn 系统/复位运动故障: 已清除运动故障锁存，需重新回零",
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X",
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X",
+        "error 运动/绝对定位: MotionError: home the axes before motion; not homed: X",
+        "info 回零/单轴回零: X OP0 脉冲，位移 -248908 µm，耗时 31.8s，DPOS 已清零，IN16=ON"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 248.9116,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "标度自检",
+      "status_before": "X 回零完成：OP0 输出脉冲，位移 -248908 µm，指令位置已清零，原点输入 IN16=ON 已确认",
+      "status_after": "X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "warn 系统/复位运动故障: 已清除运动故障锁存，需重新回零",
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X",
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X",
+        "error 运动/绝对定位: MotionError: home the axes before motion; not homed: X",
+        "info 回零/单轴回零: X OP0 脉冲，位移 -248908 µm，耗时 31.8s，DPOS 已清零，IN16=ON",
+        "info 标度/标度自检: X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "点动 −",
+      "status_before": "X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+      "status_after": "X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X",
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X",
+        "error 运动/绝对定位: MotionError: home the axes before motion; not homed: X",
+        "info 回零/单轴回零: X OP0 脉冲，位移 -248908 µm，耗时 31.8s，DPOS 已清零，IN16=ON",
+        "info 标度/标度自检: X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+        "info 运动/点动: Z1 -0.1"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 2.9,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "点动 +",
+      "status_before": "X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+      "status_after": "X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "error 运动/点动: MotionError: home the axes before motion; not homed: X",
+        "error 运动/绝对定位: MotionError: home the axes before motion; not homed: X",
+        "info 回零/单轴回零: X OP0 脉冲，位移 -248908 µm，耗时 31.8s，DPOS 已清零，IN16=ON",
+        "info 标度/标度自检: X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+        "info 运动/点动: Z1 -0.1",
+        "info 运动/点动: Z1 +0.1"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 2.9,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "定位",
+      "status_before": "X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+      "status_after": "X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "error 运动/绝对定位: MotionError: home the axes before motion; not homed: X",
+        "info 回零/单轴回零: X OP0 脉冲，位移 -248908 µm，耗时 31.8s，DPOS 已清零，IN16=ON",
+        "info 标度/标度自检: X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+        "info 运动/点动: Z1 -0.1",
+        "info 运动/点动: Z1 +0.1",
+        "info 运动/绝对定位: Z1 → 0.0"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 3.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "回零",
+      "status_before": "X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+      "status_after": "Z1 回零：OP1 脉冲已发出，编码器几乎无位移 （0.2 µm）——可能已在原点，或 OP 未接到驱动",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 回零/单轴回零: X OP0 脉冲，位移 -248908 µm，耗时 31.8s，DPOS 已清零，IN16=ON",
+        "info 标度/标度自检: X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+        "info 运动/点动: Z1 -0.1",
+        "info 运动/点动: Z1 +0.1",
+        "info 运动/绝对定位: Z1 → 0.0",
+        "warn 回零/单轴回零: Z1 OP1 脉冲已发出，编码器位移仅 0.2 µm"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "标度自检",
+      "status_before": "Z1 回零：OP1 脉冲已发出，编码器几乎无位移 （0.2 µm）——可能已在原点，或 OP 未接到驱动",
+      "status_after": "Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 标度/标度自检: X 标度自检：指令 0.500 mm → 编码器 +0.4963 mm，比值 0.9926（一致）。UNITS=2500 脉冲/mm 正确。",
+        "info 运动/点动: Z1 -0.1",
+        "info 运动/点动: Z1 +0.1",
+        "info 运动/绝对定位: Z1 → 0.0",
+        "warn 回零/单轴回零: Z1 OP1 脉冲已发出，编码器位移仅 0.2 µm",
+        "info 标度/标度自检: Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "点动 −",
+      "status_before": "Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+      "status_after": "Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 运动/点动: Z1 -0.1",
+        "info 运动/点动: Z1 +0.1",
+        "info 运动/绝对定位: Z1 → 0.0",
+        "warn 回零/单轴回零: Z1 OP1 脉冲已发出，编码器位移仅 0.2 µm",
+        "info 标度/标度自检: Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+        "info 运动/点动: Z2 -0.1"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.9,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "点动 +",
+      "status_before": "Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+      "status_after": "Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 运动/点动: Z1 +0.1",
+        "info 运动/绝对定位: Z1 → 0.0",
+        "warn 回零/单轴回零: Z1 OP1 脉冲已发出，编码器位移仅 0.2 µm",
+        "info 标度/标度自检: Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+        "info 运动/点动: Z2 -0.1",
+        "info 运动/点动: Z2 +0.1"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.9,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "定位",
+      "status_before": "Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+      "status_after": "Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 运动/绝对定位: Z1 → 0.0",
+        "warn 回零/单轴回零: Z1 OP1 脉冲已发出，编码器位移仅 0.2 µm",
+        "info 标度/标度自检: Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+        "info 运动/点动: Z2 -0.1",
+        "info 运动/点动: Z2 +0.1",
+        "info 运动/绝对定位: Z2 → 0.0"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 1.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "回零",
+      "status_before": "Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+      "status_after": "Z2 回零：OP2 脉冲已发出，编码器几乎无位移 （-0.0 µm）——可能已在原点，或 OP 未接到驱动",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "warn 回零/单轴回零: Z1 OP1 脉冲已发出，编码器位移仅 0.2 µm",
+        "info 标度/标度自检: Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+        "info 运动/点动: Z2 -0.1",
+        "info 运动/点动: Z2 +0.1",
+        "info 运动/绝对定位: Z2 → 0.0",
+        "warn 回零/单轴回零: Z2 OP2 脉冲已发出，编码器位移仅 -0.0 µm"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "标度自检",
+      "status_before": "Z2 回零：OP2 脉冲已发出，编码器几乎无位移 （-0.0 µm）——可能已在原点，或 OP 未接到驱动",
+      "status_after": "Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 标度/标度自检: Z1 标度自检：指令 0.500 mm → 编码器 +0.4989 mm，比值 0.9978（一致）。UNITS=10000 脉冲/mm 正确。",
+        "info 运动/点动: Z2 -0.1",
+        "info 运动/点动: Z2 +0.1",
+        "info 运动/绝对定位: Z2 → 0.0",
+        "warn 回零/单轴回零: Z2 OP2 脉冲已发出，编码器位移仅 -0.0 µm",
+        "info 标度/标度自检: Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "点动 −",
+      "status_before": "Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+      "status_after": "Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 运动/点动: Z2 -0.1",
+        "info 运动/点动: Z2 +0.1",
+        "info 运动/绝对定位: Z2 → 0.0",
+        "warn 回零/单轴回零: Z2 OP2 脉冲已发出，编码器位移仅 -0.0 µm",
+        "info 标度/标度自检: Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+        "info 运动/点动: Z3 -0.1"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.9
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "点动 +",
+      "status_before": "Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+      "status_after": "Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 运动/点动: Z2 +0.1",
+        "info 运动/绝对定位: Z2 → 0.0",
+        "warn 回零/单轴回零: Z2 OP2 脉冲已发出，编码器位移仅 -0.0 µm",
+        "info 标度/标度自检: Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+        "info 运动/点动: Z3 -0.1",
+        "info 运动/点动: Z3 +0.1"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.9
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 1.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "定位",
+      "status_before": "Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+      "status_after": "Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 运动/绝对定位: Z2 → 0.0",
+        "warn 回零/单轴回零: Z2 OP2 脉冲已发出，编码器位移仅 -0.0 µm",
+        "info 标度/标度自检: Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+        "info 运动/点动: Z3 -0.1",
+        "info 运动/点动: Z3 +0.1",
+        "info 运动/绝对定位: Z3 → 0.0"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 1.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "回零",
+      "status_before": "Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+      "status_after": "Z3 回零：OP3 脉冲已发出，编码器几乎无位移 （-0.0 µm）——可能已在原点，或 OP 未接到驱动",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "warn 回零/单轴回零: Z2 OP2 脉冲已发出，编码器位移仅 -0.0 µm",
+        "info 标度/标度自检: Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+        "info 运动/点动: Z3 -0.1",
+        "info 运动/点动: Z3 +0.1",
+        "info 运动/绝对定位: Z3 → 0.0",
+        "warn 回零/单轴回零: Z3 OP3 脉冲已发出，编码器位移仅 -0.0 µm"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-motion",
+      "button": "标度自检",
+      "status_before": "Z3 回零：OP3 脉冲已发出，编码器几乎无位移 （-0.0 µm）——可能已在原点，或 OP 未接到驱动",
+      "status_after": "Z3 标度自检：指令 0.500 mm → 编码器 +0.4993 mm，比值 0.9987（一致）。UNITS=10000 脉冲/mm 正确。",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [
+        "info 标度/标度自检: Z2 标度自检：指令 0.500 mm → 编码器 +0.4991 mm，比值 0.9983（一致）。UNITS=10000 脉冲/mm 正确。",
+        "info 运动/点动: Z3 -0.1",
+        "info 运动/点动: Z3 +0.1",
+        "info 运动/绝对定位: Z3 → 0.0",
+        "warn 回零/单轴回零: Z3 OP3 脉冲已发出，编码器位移仅 -0.0 µm",
+        "info 标度/标度自检: Z3 标度自检：指令 0.500 mm → 编码器 +0.4993 mm，比值 0.9987（一致）。UNITS=10000 脉冲/mm 正确。"
+      ],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-params",
+      "button": "从控制器读取",
+      "status_before": "Z3 标度自检：指令 0.500 mm → 编码器 +0.4993 mm，比值 0.9987（一致）。UNITS=10000 脉冲/mm 正确。",
+      "status_after": "已从控制器读取轴参数",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-params",
+      "button": "写入控制器",
+      "status_before": "已从控制器读取轴参数",
+      "status_after": "轴参数已写入控制器",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-params",
+      "button": "保存到文件",
+      "status_before": "轴参数已写入控制器",
+      "status_after": "轴参数已保存到 C:\\Users\\Eoulu\\AppData\\Roaming\\TunerLab\\settings.json",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-params",
+      "button": "从文件加载",
+      "status_before": "轴参数已保存到 C:\\Users\\Eoulu\\AppData\\Roaming\\TunerLab\\settings.json",
+      "status_after": "已从文件加载轴参数",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-params",
+      "button": "导出…",
+      "status_before": "已从文件加载轴参数",
+      "status_after": "已从文件加载轴参数",
+      "dialogs": "QFileDialog:导出轴参数/",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-params",
+      "button": "导入…",
+      "status_before": "已从文件加载轴参数",
+      "status_after": "已从文件加载轴参数",
+      "dialogs": "QFileDialog:导入轴参数/",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "vna",
+      "button": "[仪器连接] 连接并配置",
+      "status_before": "已从文件加载轴参数",
+      "status_after": "矢网已连接: Rohde-Schwarz,ZNA26-2Port,1332450022101355,2.97",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "vna",
+      "button": "[仪器连接] 断开",
+      "result": "DEFER",
+      "note": "会断开链路，扫描结束后再测"
+    },
+    {
+      "page": "vna",
+      "button": "[扫描参数] 下发扫描参数",
+      "status_before": "矢网已连接: Rohde-Schwarz,ZNA26-2Port,1332450022101355,2.97",
+      "status_after": "已下发扫描参数：1.0000–20.0000 GHz · 401 点 · 步进 47.5000 MHz",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "vna",
+      "button": "单次扫描（4 路）",
+      "status_before": "已下发扫描参数：1.0000–20.0000 GHz · 401 点 · 步进 47.5000 MHz",
+      "status_after": "扫描完成: 401 点 · rsp",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "vna",
+      "button": "读取错误队列",
+      "status_before": "扫描完成: 401 点 · rsp",
+      "status_after": "矢网错误队列: 错误队列为空",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "vna",
+      "button": "清除迹线",
+      "status_before": "矢网错误队列: 错误队列为空",
+      "status_after": "矢网错误队列: 错误队列为空",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "oplog",
+      "button": "刷新",
+      "status_before": "矢网错误队列: 错误队列为空",
+      "status_after": "矢网错误队列: 错误队列为空",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "oplog",
+      "button": "导出 JSON…",
+      "status_before": "矢网错误队列: 错误队列为空",
+      "status_after": "矢网错误队列: 错误队列为空",
+      "dialogs": "QFileDialog:导出操作日志/",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "oplog",
+      "button": "清空",
+      "status_before": "矢网错误队列: 错误队列为空",
+      "status_after": "已清空操作日志（29 条）",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "about",
+      "button": "打开配置目录",
+      "status_before": "已清空操作日志（29 条）",
+      "status_after": "已清空操作日志（29 条）",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "about",
+      "button": "打开日志目录",
+      "status_before": "已清空操作日志（29 条）",
+      "status_after": "已清空操作日志（29 条）",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "about",
+      "button": "打开校准库目录",
+      "status_before": "已清空操作日志（29 条）",
+      "status_after": "已清空操作日志（29 条）",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "about",
+      "button": "打开报告目录",
+      "status_before": "已清空操作日志（29 条）",
+      "status_after": "已清空操作日志（29 条）",
+      "dialogs": "",
+      "exceptions": [],
+      "logs": [],
+      "settle": "quiet",
+      "positions_before": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "positions_after": {
+        "X": 0.0,
+        "Z1": 0.0,
+        "Z2": 0.0,
+        "Z3": 0.0
+      },
+      "result": "OK"
+    },
+    {
+      "page": "hw-comm",
+      "button": "断开",
+      "result": "OK",
+      "note": "断开链路"
+    },
+    {
+      "page": "vna",
+      "button": "[仪器连接] 断开",
+      "result": "OK",
+      "note": "断开链路"
+    }
+  ],
+  "exceptions": [],
+  "dialogs": []
+}

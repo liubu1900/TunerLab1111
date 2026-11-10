@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>运动控制页 · 预览（X / Z1 / Z2 / Z3 各自分开）</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --line: #d9dee5;
+    --ink: #1f2937;
+    --muted: #5b6573;
+    --green: #1f7a4d;
+    --red: #c0392b;
+    --amber: #8a5a00;
+    --accent: #2f6fed;
+    --danger: #d64545;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Noto Sans SC", sans-serif;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .group {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 18px;
+  }
+  .group > .title {
+    font-size: 14px; font-weight: 700; margin: 0 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  /* ---- status table ---- */
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: right; }
+  th { background: #eef1f5; font-weight: 600; white-space: pre-line; text-align: center; }
+  td.axis-name, th:first-child { text-align: left; font-weight: 700; }
+  .ok { color: var(--green); }
+  .bad { color: var(--red); }
+  .warn { color: var(--amber); }
+  /* ---- per-axis panels ---- */
+  .panels { display: flex; gap: 12px; flex-wrap: wrap; }
+  .panel {
+    flex: 1 1 0; min-width: 150px; border: 1px solid var(--line);
+    border-radius: 9px; padding: 12px; display: flex; flex-direction: column;
+    align-items: stretch; gap: 8px;
+  }
+  .panel .phead { display: flex; align-items: center; gap: 6px; font-weight: 700; }
+  .dot { font-size: 15px; }
+  .barwrap { display: flex; justify-content: center; }
+  .bar {
+    width: 26px; height: 130px; border: 1px solid var(--line);
+    border-radius: 6px; position: relative; background: #f0f2f5; overflow: hidden;
+  }
+  .bar > .fill {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(180deg, #6ba0ff, #2f6fed);
+  }
+  .dpos { text-align: center; font-family: "Gilroy","Noto Sans SC",sans-serif; font-size: 12px; }
+  .ctl-label { font-size: 11px; color: var(--muted); }
+  input[type=number] {
+    width: 100%; padding: 5px 6px; border: 1px solid var(--line);
+    border-radius: 6px; font-family: "Gilroy","Noto Sans SC",sans-serif;
+  }
+  .row2 { display: flex; gap: 6px; }
+  button {
+    font-family: "Noto Sans SC", sans-serif; cursor: pointer;
+    border: 1px solid var(--line); background: #fff; border-radius: 6px;
+    padding: 7px 6px; font-size: 12px;
+  }
+  button:hover { background: #f0f4ff; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+  /* ---- global ---- */
+  .global-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .estop-row { display: flex; gap: 10px; margin-top: 10px; }
+  .estop-row .danger { flex: 3; min-height: 44px; font-size: 14px; }
+  .estop-row .reset { flex: 1; min-height: 44px; }
+  .note { color: var(--muted); font-size: 12px; line-height: 1.6; }
+  .scale-note { color: var(--amber); font-size: 12px; margin-top: 8px; }
+  .legend { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .preview-tag {
+    display: inline-block; background: #eef1f5; color: var(--muted);
+    font-size: 11px; padding: 2px 8px; border-radius: 20px; margin-left: 8px;
+  }
+</style>
+</head>
+<body>
+  <h1>运动控制页 · 预览 <span class="preview-tag">静态预览 · 与 ui_hardware.py 同步</span></h1>
+  <div class="sub">各轴（X / Z1 / Z2 / Z3）图形化独立控制。下方数据为本预览的占位示例（反映「四轴均已回零」状态）。</div>
+
+  <!-- ===== 实时状态 ===== -->
+  <div class="group">
+    <div class="title">实时状态（只读汇总）</div>
+    <table>
+      <thead>
+        <tr>
+          <th>轴</th>
+          <th>指令位置 DPOS
+(控制器单位)</th>
+          <th>反馈位置 MPOS
+(编码器单位)</th>
+          <th>跟随误差
+(控制器−编码器)</th>
+          <th>空闲</th>
+          <th>回零</th>
+          <th>AXISSTATUS
+(状态码)</th>
+          <th>状态说明</th>
+          <th>停止原因</th>
+        </tr>
+      </thead>
+      <tbody id="status-rows"><!-- filled by script --></tbody>
+    </table>
+    <div class="legend">刷新周期 300 ms（Qtimer）。未连接或读取异常时自动跳过，不报错进事件循环。</div>
+  </div>
+
+  <!-- ===== 各轴独立控制 ===== -->
+  <div class="group">
+    <div class="title">各轴独立控制（X / Z1 / Z2 / Z3 各自分开）</div>
+    <div class="panels" id="panels"><!-- filled by script --></div>
+  </div>
+
+  <!-- ===== 全局操作 ===== -->
+  <div class="group">
+    <div class="title">全局操作</div>
+    <div class="global-row">
+      <button class="primary" onclick="toast('停止：向全部轴发送停止指令（UI 线程同步，可抢占运动）')">停止</button>
+      <button onclick="toast('读取控制器错误码：翻译 AXISSTATUS / AXIS_STOPREASON 状态位为文字')">读取控制器错误码</button>
+    </div>
+    <div class="estop-row">
+      <button class="danger" onclick="toast('急停：软件急停已锁存，需复位后重新回零')">急停 (EMERGENCY STOP)</button>
+      <button class="reset" onclick="toast('复位急停：解除软件锁存，请重新回零后再运动')">复位急停</button>
+    </div>
+    <div class="note" style="margin-top:10px">
+      共享 X 轴运动前，三个探针轴必须全部回缩到安全位置，否则软件会拒绝执行。软件急停不能替代硬件安全联锁。
+    </div>
+    <div class="scale-note" id="scale-note"></div>
+  </div>
+
+<script>
+  // 占位示例状态：四轴均已回零（对应「现在所有轴已经回零了」）
+  const axes = [
+    { name:'X',  dpos: 0.0000, mpos: 0.0000, idle:true,  homed:true,  status:0, statusText:'正常', stopReason:'—' },
+    { name:'Z1', dpos: 0.0000, mpos: 0.0000, idle:true,  homed:true,  status:0, statusText:'正常', stopReason:'—' },
+    { name:'Z2', dpos: 0.0000, mpos: 0.0000, idle:true,  homed:true,  status:0, statusText:'正常', stopReason:'—' },
+    { name:'Z3', dpos: 0.0000, mpos: 0.0000, idle:true,  homed:true,  status:0, statusText:'正常', stopReason:'—' },
+  ];
+  const BAR_MIN = -10, BAR_MAX = 10;
+
+  function cell(text, cls) {
+    return `<td class="${cls||''}">${text}</td>`;
+  }
+  // ---- status table ----
+  const srows = document.getElementById('status-rows');
+  axes.forEach(a => {
+    const cls = a.statusText === '正常' ? '' : (a.statusText ? 'warn' : '');
+    const fault = a.statusText && a.statusText !== '正常';
+    const colorCls = fault ? 'bad' : (a.statusText !== '正常' ? 'warn' : '');
+    srows.insertAdjacentHTML('beforeend',
+      `<tr>
+        <td class="axis-name">${a.name}</td>
+        ${cell(a.dpos.toFixed(4))}
+        ${cell(a.mpos.toFixed(4))}
+        ${cell((a.dpos-a.mpos).toFixed(4))}
+        ${cell(a.idle ? '是' : '否')}
+        ${cell(a.homed ? '已回零' : '未回零', a.homed ? 'ok' : 'bad')}
+        ${cell(a.status, colorCls)}
+        ${cell(a.statusText, colorCls)}
+        ${cell(a.stopReason)}
+      </tr>`);
+  });
+
+  // ---- per-axis panels ----
+  const panels = document.getElementById('panels');
+  axes.forEach(a => {
+    const frac = Math.max(0, Math.min(1, (a.dpos - BAR_MIN)/(BAR_MAX - BAR_MIN)));
+    const hcolor = a.homed ? 'var(--green)' : 'var(--red)';
+    const htext = a.homed ? '已回零' : '未回零';
+    panels.insertAdjacentHTML('beforeend',
+      `<div class="panel">
+        <div class="phead"><span class="dot" style="color:${hcolor}">●</span>
+          <span style="color:${hcolor}">${a.name} · ${htext}</span></div>
+        <div class="barwrap"><div class="bar"><div class="fill" style="height:${(frac*100).toFixed(0)}%"></div></div></div>
+        <div class="dpos">指令 ${a.dpos.toFixed(4)}</div>
+        <div class="ctl-label">点动步长（指令单位）</div>
+        <input type="number" value="0.1" step="0.0001" min="0.0001" max="100" />
+        <div class="row2">
+          <button onclick="toast('${a.name} 点动 −')">点动 −</button>
+          <button onclick="toast('${a.name} 点动 +')">点动 +</button>
+        </div>
+        <div class="ctl-label">绝对目标位置（指令单位）</div>
+        <input type="number" value="0" step="0.0001" />
+        <button class="primary" onclick="toast('${a.name} 定位')">定位</button>
+        <button onclick="toast('${a.name} 回零（经 home_axis_safe 守卫）')">回零</button>
+        <button onclick="toast('${a.name} 标度自检：走 0.005 步长测量 编码器位移 ÷ 指令位移')">标度自检</button>
+      </div>`);
+  });
+
+  const scaleNote = document.getElementById('scale-note');
+  scaleNote.textContent = '标度自检说明：比值不为 1 表示 UNITS 与反馈标度不匹配，轴实际行程远大于指令数字；此时会出现「采纳并写入修正后的 UNITS」按钮（本预览未触发）。';
+
+  function toast(msg){ alert(msg); }
+</script>
+</body>
+</html>

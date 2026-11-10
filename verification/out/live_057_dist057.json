@@ -1,0 +1,171 @@
+{
+  "library": "C:\\Users\\Eoulu\\Documents\\TunerLab\\calibrations\\cal_20261109_181953.h5",
+  "with_motion": true,
+  "checks": [
+    {
+      "name": "controller link",
+      "ok": true,
+      "detail": "ip=192.168.0.11 connected=True"
+    },
+    {
+      "name": "axes idle before test",
+      "ok": true,
+      "detail": "idle=[True, True, True, True]"
+    },
+    {
+      "name": "studio motion planner",
+      "ok": true,
+      "detail": "planner=MotionPlanner"
+    },
+    {
+      "name": "studio real VNA",
+      "ok": true,
+      "detail": "vna=TCPVNA"
+    },
+    {
+      "name": "library exists",
+      "ok": true,
+      "detail": "C:\\Users\\Eoulu\\Documents\\TunerLab\\calibrations\\cal_20261109_181953.h5"
+    },
+    {
+      "name": "studio_task completed == total",
+      "ok": true,
+      "detail": "completed=1152 total_points=1152 legacy_progress=[0, 0] state=loaded"
+    },
+    {
+      "name": "live Smith Γ cloud size",
+      "ok": true,
+      "detail": "points=1152 freq=5000000000.0 freqs=[5000000000.0]"
+    },
+    {
+      "name": "Γ values finite & in range",
+      "ok": true,
+      "detail": "first={'re': 0.5090658417, 'im': 0.7022622818, 'index': 0}"
+    },
+    {
+      "name": "latest point present",
+      "ok": true,
+      "detail": "latest={'re': 0.1891994188, 'im': -0.06307587082, 'index': 1151}"
+    },
+    {
+      "name": "StudioRunPage present",
+      "ok": true,
+      "detail": "page=StudioRunPage"
+    },
+    {
+      "name": "counter reads 1152 / 1152",
+      "ok": true,
+      "detail": "counter='1152 / 1152'"
+    },
+    {
+      "name": "progress bar reads 100%",
+      "ok": true,
+      "detail": "value=100"
+    },
+    {
+      "name": "state pill reads 已完成",
+      "ok": true,
+      "detail": "pill='已完成'"
+    },
+    {
+      "name": "live Smith widget holds 1152 Γ",
+      "ok": true,
+      "detail": "points=1152"
+    },
+    {
+      "name": "frequency picker populated",
+      "ok": true,
+      "detail": "count=1 text='5.0000 GHz'"
+    },
+    {
+      "name": "Smith caption shows full count",
+      "ok": true,
+      "detail": "caption='1152 / 1152 点 · 5.0000 GHz · 青色=已采 Γ，粉色=最新点；滚轮缩放 / 中键拖拽 / 双击复位'"
+    },
+    {
+      "name": "latest point highlighted",
+      "ok": true,
+      "detail": "selected=(0.1891994188-0.06307587082j)"
+    },
+    {
+      "name": "wheel event zooms in",
+      "ok": true,
+      "detail": "zoom 1.000 -> 1.521, badge=×1.5"
+    },
+    {
+      "name": "cursor-anchored Γ unchanged after zoom",
+      "ok": true,
+      "detail": "Γ0=0.160377+0.103774j Γ1=0.160377+0.103774j err=1.11e-16"
+    },
+    {
+      "name": "real left-click emits the correct Γ",
+      "ok": true,
+      "detail": "picked=[(0.16037735849056603+0.1037735849056605j)] expected=(0.16037735849056603+0.10377358490566038j)"
+    },
+    {
+      "name": "middle-drag pans the view",
+      "ok": true,
+      "detail": "pan (-17.70974999999998, 11.459250000000026) -> (6.290250000000022, -1.5407499999999743)"
+    },
+    {
+      "name": "double-click resets the view",
+      "ok": true,
+      "detail": "zoom=1.0 pan=(0.0,0.0)"
+    },
+    {
+      "name": "放大 / 缩小 / 复位 buttons",
+      "ok": true,
+      "detail": "zoom_in=1.300 zoom_out=1.000 reset=1.000"
+    },
+    {
+      "name": "SmithPreview wheel zoom + reset",
+      "ok": true,
+      "detail": "zoomed=1.322 reset=1.000"
+    },
+    {
+      "name": "planner & VNA available",
+      "ok": true,
+      "detail": "planner=True vna=True"
+    },
+    {
+      "name": "planner controller == session controller",
+      "ok": true,
+      "detail": "same object=True"
+    },
+    {
+      "name": "planned travel is a short nudge (<= 5 mm)",
+      "ok": true,
+      "detail": "travel=2.000 mm"
+    },
+    {
+      "name": "X +2 mm reached",
+      "ok": true,
+      "detail": "target=281.412 readback=281.412"
+    },
+    {
+      "name": "real VNA measure() after move",
+      "ok": true,
+      "detail": "measurement shape=None"
+    },
+    {
+      "name": "returned to start DPOS",
+      "ok": true,
+      "detail": "delta=0.0000 mm"
+    },
+    {
+      "name": "machine restored, no latched fault",
+      "ok": true,
+      "detail": "delta=0.0000 mm"
+    }
+  ],
+  "notes": [
+    "pages built: 16",
+    "DPOS(mm)=[279.4116, 3.0, 5.0, 1.0] idle=[True, True, True, True] homed_axes=['X', 'Z1', 'Z2', 'Z3'] faulted=False",
+    "effective motion_timeout = 60.0 s",
+    "overview: valid=None total=None",
+    "anchor pixel=(294,208) Γ0=0.16038+0.10377j zoom0=1.000",
+    "start DPOS = [279.4115905761719, 3.0, 5.0, 1.0]",
+    "final DPOS = [279.4115905761719, 3.0, 5.0, 1.0] faulted=False homed=['X', 'Z1', 'Z2', 'Z3']"
+  ],
+  "failures": 0
+}

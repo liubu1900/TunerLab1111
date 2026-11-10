@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>方案 4 · 高密度 HMI（Dense HMI）</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:"Noto Sans SC","Microsoft YaHei",sans-serif;font-size:13px;font-weight:400;-webkit-font-smoothing:antialiased}
+.mono{font-family:"Noto Sans SC","Microsoft YaHei",sans-serif;font-variant-numeric:tabular-nums;font-weight:500}
+button{font:inherit;font-weight:500;padding:5px 12px;border-radius:4px;cursor:pointer}
+button.primary{font-weight:700}
+input,select{font:inherit;padding:4px 7px;width:100%}
+table{width:100%;border-collapse:collapse}
+th,td{padding:5px 8px;text-align:right;font-weight:400}
+th:first-child,td:first-child{text-align:left}
+.card h3{margin:0 0 10px;font-size:12.5px;letter-spacing:.02em;font-weight:600}
+.form{display:grid;grid-template-columns:84px 1fr;gap:8px 10px;align-items:center}
+.form label{font-size:12px;opacity:.75;font-weight:400}
+.hint{font-size:11.5px;opacity:.62;margin:6px 0;font-weight:300}
+.hint.ok{color:#1f7a4d;opacity:1}
+.btnrow{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.btnrow.tight{gap:5px}
+.btnrow.tight button{flex:1;padding:4px 6px}
+.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.toolbar .grow,.grow{flex:1}
+.sep{width:1px;height:18px;background:currentColor;opacity:.15}
+
+body{background:#e9edf1;color:#101b24;font-size:12px}
+.app{display:grid;grid-template-columns:170px 1fr;height:100vh}
+.tree{background:#dfe5eb;border-right:1px solid #c3ccd6;padding:8px 0;font-size:11.5px}
+.tree .brand{padding:6px 12px 10px;font-weight:700;color:#173a52;font-size:13px}
+.tree .grp{padding:8px 12px 3px;color:#5d7183;font-size:10px;letter-spacing:.08em}
+.tree a{display:block;padding:4px 12px 4px 20px;color:#233746;text-decoration:none}
+.tree a.active{background:#c9d8e5;color:#0d2f46;font-weight:600;
+  box-shadow:inset 3px 0 0 #1f6fa0}
+.shell{display:flex;flex-direction:column;min-width:0}
+.topbar{height:30px;background:#d5dde5;border-bottom:1px solid #bcc7d2;display:flex;
+  align-items:center;padding:0 10px;gap:10px;font-size:11.5px}
+.topbar b{color:#0d2f46}.topbar .grow{flex:1}
+.topbar .badge{color:#1f7a4d;font-weight:600}
+.page{display:none;padding:6px 8px 8px;gap:6px;flex-direction:column;
+  flex:1;min-height:0;overflow:auto}
+.page.on{display:flex}
+.card{background:#f7f9fb;border:1px solid #c3ccd6;padding:6px 8px}
+.card h3{margin:0 0 6px;font-size:11px;color:#3d566b;text-transform:uppercase;
+  letter-spacing:.06em;border-bottom:1px solid #d5dde5;padding-bottom:4px}
+table.grid{font-size:11.5px}
+table.grid th{background:#e3e9ef;color:#33475a;font-size:10.5px;padding:3px 6px;
+  border:1px solid #c9d2dc;font-weight:600}
+table.grid td{border:1px solid #d9e0e7;padding:3px 6px;background:#fff}
+table.grid tbody tr:nth-child(even) td{background:#f4f7fa}
+.ok{color:#1f7a4d;font-weight:700}.warn{color:#b5651d;font-weight:700}
+input,select{border:1px solid #b9c6d3;background:#fff;padding:2px 5px;border-radius:2px;
+  font-size:11.5px}
+button{background:#eef2f6;border:1px solid #b9c6d3;border-radius:2px;padding:3px 9px;
+  font-size:11.5px;color:#1e3345}
+button.primary{background:#1f6fa0;border-color:#1f6fa0;color:#fff}
+button.danger{background:#fdeceb;border-color:#d9a9a4;color:#a3382c}
+button.ghost{background:transparent}
+.cols{display:grid;gap:6px}
+.cols.two{grid-template-columns:1fr 1fr}
+.cols.three{grid-template-columns:repeat(3,1fr)}
+.stats{display:grid;grid-template-columns:78px 1fr;gap:3px 8px;margin:0;font-size:11.5px}
+.stats dt{color:#5d7183}.stats dd{margin:0}
+.stats dd.small{font-size:10.5px}
+.check{display:inline-flex;align-items:center;gap:6px;font-size:11.5px}
+.check i{width:13px;height:13px;border:1px solid #9fb0c0;background:#fff;display:inline-block}
+.check.on i{background:#1f6fa0;border-color:#1f6fa0;position:relative}
+.check.on i::after{content:"";position:absolute;left:3px;top:0;width:3px;height:7px;
+  border:2px solid #fff;border-top:0;border-left:0;transform:rotate(42deg)}
+.axes{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.axis{background:#f7f9fb;border:1px solid #c3ccd6;padding:6px 7px}
+.axis-head{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px}
+.axis-head b{color:#0d2f46}
+.lamp{width:7px;height:7px;border-radius:50%;background:#c0392b;margin-left:auto}
+.lamp.on{background:#1f9d63}
+.tiny{font-size:10px;color:#5d7183}
+.axis-body{display:flex;gap:6px}
+.bar{width:12px;height:118px;background:#e3e9ef;border:1px solid #c9d2dc;display:flex;
+  align-items:flex-end}
+.bar span{display:block;width:100%;background:#2f8fbf}
+.axis-form{flex:1;display:flex;flex-direction:column;gap:3px}
+.kv{display:flex;justify-content:space-between;font-size:10.5px;color:#5d7183}
+.kv b{color:#101b24}
+.vna{display:grid;grid-template-columns:296px 1fr;gap:6px;flex:1;min-height:0}
+.rail{display:flex;flex-direction:column;gap:6px;overflow:auto}
+.work{display:flex;flex-direction:column;gap:6px;min-width:0}
+.traces{display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:none;height:min(50vh,430px)}
+.trace{background:#fff;border:1px solid #c3ccd6;display:flex;flex-direction:column;
+  padding:4px 7px 2px;min-height:0}
+.trace-head{display:flex;align-items:center;gap:5px;font-size:10.5px;color:#3d566b;
+  border-bottom:1px solid #dde4ea;padding-bottom:3px;margin-bottom:3px}
+.trace-head b{font-size:11px;color:#0d2f46}
+.trace-head .unit{opacity:.55;font-size:9.5px}
+.dot{width:6px;height:6px;display:inline-block}
+.trace-body{flex:1;min-height:78px}
+.trace .grid line{stroke:#eaf0f5}
+.trace-axes{display:flex;justify-content:space-between;font-size:9px;color:#7b8a99}
+table.dense th,table.dense td{padding:2px 6px;font-size:10.5px}
+.work table.grid{max-height:17vh;overflow:auto;display:block}
+
+#tabs .tabbtn{opacity:.7}
+#tabs .tabbtn.on{opacity:1;font-weight:600}
+</style></head>
+<body>
+<div class="app">
+
+<aside class="tree">
+  <div class="brand">TunerLab 0.3</div>
+  <div class="grp">设备</div>
+  <a class="active">通讯设置</a><a>轴移动控制</a><a>轴参数设定</a><a>矢网控制</a>
+  <div class="grp">校准</div><a>概览</a><a>布点</a><a>采集</a><a>库</a><a>调谐</a>
+  <div class="grp">记录</div><a>操作日志</a>
+</aside>
+<div class="shell">
+<div class="topbar"><b>通讯设置</b><span>设备 / 通讯设置</span><span class="grow"></span><span class="badge">已连接 · 2.9600</span></div>
+<div id="tabs" style="display:flex;gap:6px;padding:8px 18px 0"><button data-p="comm" class="tabbtn">通讯设置</button><button data-p="motion" class="tabbtn">轴移动控制</button><button data-p="params" class="tabbtn">轴参数设定</button><button data-p="vna" class="tabbtn">矢网控制</button></div>
+
+    <div class="page on" id="comm">
+      <div class="cols two">
+        <section class="card">
+          <h3>控制器连接</h3>
+          <div class="form">
+            <label>控制器 IP</label><input value="192.168.0.11">
+            <label>控制器模式</label>
+            <select><option>真实控制器 (Zmotion)</option><option>虚拟控制器</option></select>
+            <label>tuner 型号</label>
+            <select><option>4 轴 tuner (X, Z1, Z2, Z3)</option></select>
+            <label>启动</label>
+            <span class="check on"><i></i>启动时自动连接</span>
+          </div>
+          <p class="hint ok">已保存：下次启动自动连接 192.168.0.11 · 真实控制器</p>
+          <div class="btnrow">
+            <button class="primary">连接</button>
+            <button>断开</button><button>广播搜索</button>
+          </div>
+        </section>
+        <section class="card">
+          <h3>连接状态</h3>
+          <dl class="stats">
+            <dt>状态</dt><dd class="ok">已连接</dd>
+            <dt>固件版本</dt><dd class="mono">2.9600</dd>
+            <dt>控制器地址</dt><dd class="mono">192.168.0.11</dd>
+            <dt>SDK 库</dt><dd class="mono small">vendor\zmotion\zauxdll.dll</dd>
+            <dt>设置文件</dt><dd class="mono small">%APPDATA%\TunerLab\settings.json</dd>
+          </dl>
+          <div class="btnrow"><button>保存通讯设置</button><button>打开所在文件夹</button></div>
+        </section>
+      </div>
+      <section class="card note">
+        <h3>诊断</h3>
+        <p>控制器走以太网 UDP 广播（ZAux_OpenEth），上位机需与控制器同网段。
+        最近一次握手耗时 38 ms，丢包 0/20。</p>
+      </section>
+    </div>
+    <div class="page" id="motion">
+      <section class="card">
+        <h3>实时状态 <span class="hint">X 0–400 mm · Z 0–17.5 mm</span></h3>
+        <table class="grid">
+          <thead><tr><th>轴</th><th>指令 DPOS (mm)</th><th>反馈 MPOS (mm)</th>
+            <th>跟随误差 (mm)</th><th>空闲</th><th>回零 / 原点</th><th>AXISSTATUS</th>
+            <th>状态</th></tr></thead>
+          <tbody><tr><td><b>X</b></td><td class="mono">1.0000</td><td class="mono">1.0000</td><td class="mono">+0.0000</td><td>是</td><td class="ok">已回零 · IN16=ON</td><td class="mono">0</td><td>正常</td></tr><tr><td><b>Z1</b></td><td class="mono">0.4000</td><td class="mono">0.3999</td><td class="mono">+0.0001</td><td>是</td><td class="warn">未回零</td><td class="mono">0</td><td>正常</td></tr><tr><td><b>Z2</b></td><td class="mono">0.1000</td><td class="mono">0.1000</td><td class="mono">+0.0000</td><td>是</td><td class="ok">已回零 · IN18=ON</td><td class="mono">0</td><td>正常</td></tr><tr><td><b>Z3</b></td><td class="mono">0.0000</td><td class="mono">0.0000</td><td class="mono">+0.0000</td><td>是</td><td class="ok">已回零 · IN19=ON</td><td class="mono">0</td><td>正常</td></tr></tbody>
+        </table>
+        <p class="hint">原点输入：X=IN16:1  Z1=IN17:0  Z2=IN18:1  Z3=IN19:1</p>
+      </section>
+      <div class="axes">
+        <div class="axis">
+          <div class="axis-head"><b>X</b>
+            <span class="lamp on"></span>
+            <span class="tiny">已回零</span></div>
+          <div class="axis-body">
+            <div class="bar"><span style="height:24%"></span></div>
+            <div class="axis-form">
+              <div class="kv"><span>指令</span><b class="mono">1.0000</b></div>
+              <div class="kv"><span>反馈</span><b class="mono">1.0000</b></div>
+              <input class="mono" value="0.1000 mm">
+              <div class="btnrow tight"><button>点动 −</button><button>点动 +</button></div>
+              <input class="mono" value="0.0000 mm">
+              <button class="primary">定位</button>
+              <button>回零</button>
+              <button class="ghost">标度自检</button>
+            </div>
+          </div>
+        </div>
+        <div class="axis">
+          <div class="axis-head"><b>Z1</b>
+            <span class="lamp "></span>
+            <span class="tiny">未回零</span></div>
+          <div class="axis-body">
+            <div class="bar"><span style="height:22%"></span></div>
+            <div class="axis-form">
+              <div class="kv"><span>指令</span><b class="mono">0.4000</b></div>
+              <div class="kv"><span>反馈</span><b class="mono">0.3999</b></div>
+              <input class="mono" value="0.1000 mm">
+              <div class="btnrow tight"><button>点动 −</button><button>点动 +</button></div>
+              <input class="mono" value="0.0000 mm">
+              <button class="primary">定位</button>
+              <button>回零</button>
+              <button class="ghost">标度自检</button>
+            </div>
+          </div>
+        </div>
+        <div class="axis">
+          <div class="axis-head"><b>Z2</b>
+            <span class="lamp on"></span>
+            <span class="tiny">已回零</span></div>
+          <div class="axis-body">
+            <div class="bar"><span style="height:20%"></span></div>
+            <div class="axis-form">
+              <div class="kv"><span>指令</span><b class="mono">0.1000</b></div>
+              <div class="kv"><span>反馈</span><b class="mono">0.1000</b></div>
+              <input class="mono" value="0.1000 mm">
+              <div class="btnrow tight"><button>点动 −</button><button>点动 +</button></div>
+              <input class="mono" value="0.0000 mm">
+              <button class="primary">定位</button>
+              <button>回零</button>
+              <button class="ghost">标度自检</button>
+            </div>
+          </div>
+        </div>
+        <div class="axis">
+          <div class="axis-head"><b>Z3</b>
+            <span class="lamp on"></span>
+            <span class="tiny">已回零</span></div>
+          <div class="axis-body">
+            <div class="bar"><span style="height:20%"></span></div>
+            <div class="axis-form">
+              <div class="kv"><span>指令</span><b class="mono">0.0000</b></div>
+              <div class="kv"><span>反馈</span><b class="mono">0.0000</b></div>
+              <input class="mono" value="0.1000 mm">
+              <div class="btnrow tight"><button>点动 −</button><button>点动 +</button></div>
+              <input class="mono" value="0.0000 mm">
+              <button class="primary">定位</button>
+              <button>回零</button>
+              <button class="ghost">标度自检</button>
+            </div>
+          </div>
+        </div></div>
+      <section class="card btnbar">
+        <button class="danger">停止</button><button class="danger">急停</button>
+        <button>复位急停</button><button>复位运动故障</button>
+        <span class="hint">申报行程 (mm)：X 0–400 · Z1 0–17.5 · Z2 0–17.5 · Z3 0–17.5</span>
+      </section>
+    </div>
+    <div class="page" id="params">
+      <section class="card">
+        <div class="toolbar">
+          <button class="primary">从控制器读取</button>
+          <button>写入控制器</button>
+          <span class="sep"></span>
+          <button>保存到文件</button><button>从文件加载</button>
+          <span class="sep"></span>
+          <button>导出…</button><button>导入…</button>
+          <span class="grow"></span><span class="hint">4 轴 · 12 项 · 未修改</span>
+        </div>
+        <table class="grid params">
+          <thead><tr><th>轴</th><th>ATYPE</th><th>UNITS</th><th>SPEED</th><th>ACCEL</th><th>DECEL</th><th>CREEP</th><th>INVERT</th><th>DATUM<br>MODE</th><th>DATUM<br>IN</th><th>FS_LIMIT</th><th>RS_LIMIT</th></tr></thead>
+          <tbody><tr><td><b>X</b></td><td class="mono">2500</td><td class="mono">10</td><td class="mono">10</td><td class="mono">10</td><td class="mono">5</td><td class="mono">0</td><td class="mono">1</td><td class="mono">0</td><td class="mono">16</td><td class="mono">400</td><td class="mono">0</td></tr><tr><td><b>Z1</b></td><td class="mono">10000</td><td class="mono">10</td><td class="mono">5</td><td class="mono">5</td><td class="mono">2</td><td class="mono">0</td><td class="mono">4</td><td class="mono">0</td><td class="mono">17</td><td class="mono">17.5</td><td class="mono">0</td></tr><tr><td><b>Z2</b></td><td class="mono">10000</td><td class="mono">10</td><td class="mono">5</td><td class="mono">5</td><td class="mono">2</td><td class="mono">0</td><td class="mono">4</td><td class="mono">0</td><td class="mono">18</td><td class="mono">17.5</td><td class="mono">0</td></tr><tr><td><b>Z3</b></td><td class="mono">10000</td><td class="mono">10</td><td class="mono">5</td><td class="mono">5</td><td class="mono">2</td><td class="mono">0</td><td class="mono">4</td><td class="mono">0</td><td class="mono">19</td><td class="mono">17.5</td><td class="mono">0</td></tr></tbody>
+        </table>
+        <p class="hint">参数修改后需「写入控制器」才下发；「保存到文件」只更新本机配置。
+        编辑 UNITS / INVERT_STEP / DATUM_IN / DATUM_MODE 会清除该轴回零状态。</p>
+      </section>
+      <div class="cols three">
+        <section class="card"><h3>坐标基准</h3>
+          <p class="hint">UNITS 为脉冲/mm；MPOS 单位为 10 µm，DPOS 为 mm。</p></section>
+        <section class="card"><h3>回零策略</h3>
+          <p class="hint">Z 轴 DATUM_MODE=4（反向找原点开关），X 轴=1。</p></section>
+        <section class="card"><h3>保护</h3>
+          <p class="hint">控制器 FS/RS_LIMIT 仍为出厂 ±2e8，软件按申报行程拦截。</p></section>
+      </div>
+    </div>
+    <div class="page" id="vna">
+      <div class="vna">
+        <aside class="rail">
+          <section class="card">
+            <h3>仪器连接</h3>
+            <div class="form">
+              <label>厂商</label><select><option>自动识别 (*IDN?)</option></select>
+              <label>IP 地址</label><input class="mono" value="192.168.0.50">
+              <label>端口</label><input class="mono" value="5025">
+              <label>超时</label><input class="mono" value="5000 ms">
+            </div>
+            <div class="btnrow"><button class="primary">连接并配置</button><button>断开</button></div>
+          </section>
+          <section class="card">
+            <h3>扫描参数</h3>
+            <div class="form">
+              <label>起始</label><input class="mono" value="0.400000 GHz">
+              <label>终止</label><input class="mono" value="20.000000 GHz">
+              <label>点数</label><input class="mono" value="2000">
+              <label>步进</label><input class="mono" value="9.8049 MHz">
+              <label>功率</label><input class="mono" value="-5.00 dBm">
+              <label>中频带宽</label><input class="mono" value="1000 Hz">
+            </div>
+            <p class="hint">跨度 19.6000 GHz · 2000 点 · 步进 9.8049 MHz</p>
+            <div class="btnrow"><button class="primary">下发扫描参数</button></div>
+          </section>
+          <section class="card">
+            <h3>仪器状态</h3>
+            <dl class="stats">
+              <dt>状态</dt><dd class="ok">已连接</dd>
+              <dt>识别厂商</dt><dd>Keysight</dd>
+              <dt>IDN</dt><dd class="mono small">Keysight,E5071C,MY12345678</dd>
+            </dl>
+          </section>
+        </aside>
+        <div class="work">
+          <div class="toolbar">
+            <button class="primary">单次扫描（4 路）</button>
+            <button>读取错误队列</button><button>清除迹线</button>
+            <span class="grow"></span><span class="hint">鼠标移到图内可读取频点与幅度</span>
+          </div>
+          <div class="traces">
+      <div class="trace">
+        <div class="trace-head"><span class="dot" style="background:#2f6f9f"></span>
+          <b>S11</b><span class="unit">dB</span></div>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="trace-body">
+          <g class="grid">
+            <line x1="0" y1="25" x2="100" y2="25"/><line x1="0" y1="50" x2="100" y2="50"/>
+            <line x1="0" y1="75" x2="100" y2="75"/>
+            <line x1="25" y1="0" x2="25" y2="100"/><line x1="50" y1="0" x2="50" y2="100"/>
+            <line x1="75" y1="0" x2="75" y2="100"/>
+          </g>
+          <polyline points="0.00,2.00 0.39,2.00 0.77,2.00 1.16,2.00 1.54,2.00 1.93,2.00 2.32,2.00 2.70,2.00 3.09,2.00 3.47,2.00 3.86,2.00 4.25,2.00 4.63,2.00 5.02,2.00 5.41,2.00 5.79,2.00 6.18,2.00 6.56,2.00 6.95,2.00 7.34,2.00 7.72,2.00 8.11,2.00 8.49,2.00 8.88,2.00 9.27,2.00 9.65,2.00 10.04,2.00 10.42,2.00 10.81,2.00 11.20,2.00 11.58,2.00 11.97,2.00 12.36,2.00 12.74,2.00 13.13,2.00 13.51,2.00 13.90,2.00 14.29,2.00 14.67,2.00 15.06,2.00 15.44,2.00 15.83,2.00 16.22,2.00 16.60,2.00 16.99,2.00 17.37,2.00 17.76,2.00 18.15,2.00 18.53,2.00 18.92,2.00 19.31,2.00 19.69,2.00 20.08,2.00 20.46,2.00 20.85,2.00 21.24,2.00 21.62,2.00 22.01,2.00 22.39,2.00 22.78,2.00 23.17,2.00 23.55,2.00 23.94,2.00 24.32,2.00 24.71,2.00 25.10,2.00 25.48,2.00 25.87,2.00 26.25,2.00 26.64,2.00 27.03,2.00 27.41,2.00 27.80,2.00 28.19,2.00 28.57,2.00 28.96,2.00 29.34,2.00 29.73,2.00 30.12,2.00 30.50,2.00 30.89,2.00 31.27,2.00 31.66,2.00 32.05,2.00 32.43,2.00 32.82,2.00 33.20,2.00 33.59,2.00 33.98,2.00 34.36,2.00 34.75,2.00 35.14,2.08 35.52,2.28 35.91,2.50 36.29,2.75 36.68,3.04 37.07,3.39 37.45,3.79 37.84,4.27 38.22,4.84 38.61,5.54 39.00,6.39 39.38,7.45 39.77,8.79 40.15,10.50 40.54,12.75 40.93,15.74 41.31,19.83 41.70,25.53 42.08,33.61 42.47,45.13 42.86,60.98 43.24,80.17 43.63,96.35 44.02,98.00 44.40,85.56 44.79,66.26 45.17,49.20 45.56,36.50 45.95,27.55 46.33,21.26 46.72,16.78 47.10,13.51 47.49,11.08 47.88,9.23 48.26,7.80 48.65,6.67 49.03,5.76 49.42,5.03 49.81,4.42 50.19,3.92 50.58,3.50 50.97,3.14 51.35,2.83 51.74,2.57 52.12,2.34 52.51,2.14 52.90,2.00 53.28,2.00 53.67,2.00 54.05,2.00 54.44,2.00 54.83,2.00 55.21,2.00 55.60,2.00 55.98,2.00 56.37,2.00 56.76,2.00 57.14,2.00 57.53,2.00 57.92,2.00 58.30,2.00 58.69,2.00 59.07,2.00 59.46,2.00 59.85,2.00 60.23,2.00 60.62,2.00 61.00,2.00 61.39,2.00 61.78,2.00 62.16,2.00 62.55,2.00 62.93,2.00 63.32,2.00 63.71,2.00 64.09,2.00 64.48,2.00 64.86,2.00 65.25,2.00 65.64,2.00 66.02,2.00 66.41,2.00 66.80,2.00 67.18,2.00 67.57,2.00 67.95,2.00 68.34,2.00 68.73,2.00 69.11,2.00 69.50,2.00 69.88,2.00 70.27,2.00 70.66,2.00 71.04,2.00 71.43,2.00 71.81,2.00 72.20,2.00 72.59,2.00 72.97,2.00 73.36,2.00 73.75,2.00 74.13,2.00 74.52,2.00 74.90,2.00 75.29,2.00 75.68,2.00 76.06,2.00 76.45,2.00 76.83,2.00 77.22,2.00 77.61,2.00 77.99,2.00 78.38,2.00 78.76,2.00 79.15,2.00 79.54,2.00 79.92,2.00 80.31,2.00 80.69,2.00 81.08,2.00 81.47,2.00 81.85,2.00 82.24,2.00 82.63,2.00 83.01,2.00 83.40,2.00 83.78,2.00 84.17,2.00 84.56,2.00 84.94,2.00 85.33,2.00 85.71,2.00 86.10,2.00 86.49,2.00 86.87,2.00 87.26,2.00 87.64,2.00 88.03,2.00 88.42,2.00 88.80,2.00 89.19,2.00 89.58,2.00 89.96,2.00 90.35,2.00 90.73,2.00 91.12,2.00 91.51,2.00 91.89,2.00 92.28,2.00 92.66,2.00 93.05,2.00 93.44,2.00 93.82,2.00 94.21,2.00 94.59,2.00 94.98,2.00 95.37,2.00 95.75,2.00 96.14,2.00 96.53,2.00 96.91,2.00 97.30,2.00 97.68,2.00 98.07,2.00 98.46,2.00 98.84,2.00 99.23,2.00 99.61,2.00 100.00,2.00"
+                    fill="none" stroke="#2f6f9f" stroke-width="1.1"
+                    vector-effect="non-scaling-stroke"/>
+        </svg>
+        <div class="trace-axes"><span>0.4</span><span>10</span><span>20 GHz</span></div>
+      </div>
+      <div class="trace">
+        <div class="trace-head"><span class="dot" style="background:#1f7a4d"></span>
+          <b>S21</b><span class="unit">dB</span></div>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="trace-body">
+          <g class="grid">
+            <line x1="0" y1="25" x2="100" y2="25"/><line x1="0" y1="50" x2="100" y2="50"/>
+            <line x1="0" y1="75" x2="100" y2="75"/>
+            <line x1="25" y1="0" x2="25" y2="100"/><line x1="50" y1="0" x2="50" y2="100"/>
+            <line x1="75" y1="0" x2="75" y2="100"/>
+          </g>
+          <polyline points="0.00,2.00 0.39,2.00 0.77,2.00 1.16,2.00 1.54,2.00 1.93,2.00 2.32,2.00 2.70,2.00 3.09,2.00 3.47,2.00 3.86,2.00 4.25,2.00 4.63,2.00 5.02,2.00 5.41,2.00 5.79,2.00 6.18,2.00 6.56,2.00 6.95,2.00 7.34,2.00 7.72,2.00 8.11,2.00 8.49,2.00 8.88,2.00 9.27,2.00 9.65,2.00 10.04,2.00 10.42,2.00 10.81,2.00 11.20,2.00 11.58,2.00 11.97,2.00 12.36,2.00 12.74,2.00 13.13,2.00 13.51,2.00 13.90,2.00 14.29,2.00 14.67,2.00 15.06,2.00 15.44,2.00 15.83,2.00 16.22,2.00 16.60,2.00 16.99,2.00 17.37,2.00 17.76,2.00 18.15,2.00 18.53,2.00 18.92,2.00 19.31,2.00 19.69,2.00 20.08,2.00 20.46,2.00 20.85,2.00 21.24,2.00 21.62,2.00 22.01,2.00 22.39,2.00 22.78,2.00 23.17,2.00 23.55,2.00 23.94,2.00 24.32,2.00 24.71,2.00 25.10,2.00 25.48,2.00 25.87,2.00 26.25,2.00 26.64,2.00 27.03,2.00 27.41,2.00 27.80,2.00 28.19,2.00 28.57,2.00 28.96,2.00 29.34,2.00 29.73,2.00 30.12,2.00 30.50,2.00 30.89,2.00 31.27,2.00 31.66,2.00 32.05,2.00 32.43,2.00 32.82,2.00 33.20,2.00 33.59,2.00 33.98,2.00 34.36,2.00 34.75,2.00 35.14,2.00 35.52,2.00 35.91,2.00 36.29,2.00 36.68,2.00 37.07,2.00 37.45,2.00 37.84,2.00 38.22,2.00 38.61,2.00 39.00,2.00 39.38,2.18 39.77,2.53 40.15,3.00 40.54,3.63 40.93,4.50 41.31,5.77 41.70,7.70 42.08,10.83 42.47,16.32 42.86,26.86 43.24,48.62 43.63,86.28 44.02,95.57 44.40,58.12 44.79,31.56 45.17,18.65 45.56,12.11 45.95,8.47 46.33,6.28 46.72,4.86 47.10,3.90 47.49,3.22 47.88,2.73 48.26,2.35 48.65,2.06 49.03,2.00 49.42,2.00 49.81,2.00 50.19,2.00 50.58,2.00 50.97,2.00 51.35,2.00 51.74,2.00 52.12,2.00 52.51,2.00 52.90,2.00 53.28,2.00 53.67,2.00 54.05,2.00 54.44,2.00 54.83,2.00 55.21,2.00 55.60,2.00 55.98,2.00 56.37,2.00 56.76,2.00 57.14,2.00 57.53,2.00 57.92,2.00 58.30,2.00 58.69,2.00 59.07,2.00 59.46,2.00 59.85,2.00 60.23,2.00 60.62,2.00 61.00,2.00 61.39,2.00 61.78,2.00 62.16,2.00 62.55,2.00 62.93,2.00 63.32,2.00 63.71,2.00 64.09,2.00 64.48,2.00 64.86,2.00 65.25,2.00 65.64,2.00 66.02,2.00 66.41,2.00 66.80,2.00 67.18,2.00 67.57,2.00 67.95,2.00 68.34,2.00 68.73,2.00 69.11,2.00 69.50,2.00 69.88,2.00 70.27,2.00 70.66,2.00 71.04,2.00 71.43,2.00 71.81,2.00 72.20,2.00 72.59,2.00 72.97,2.00 73.36,2.00 73.75,2.00 74.13,2.00 74.52,2.00 74.90,2.00 75.29,2.00 75.68,2.00 76.06,2.00 76.45,2.00 76.83,2.00 77.22,2.00 77.61,2.00 77.99,2.00 78.38,2.00 78.76,2.00 79.15,2.00 79.54,2.00 79.92,2.00 80.31,2.00 80.69,2.00 81.08,2.00 81.47,2.00 81.85,2.00 82.24,2.00 82.63,2.00 83.01,2.00 83.40,2.00 83.78,2.00 84.17,2.00 84.56,2.00 84.94,2.00 85.33,2.00 85.71,2.00 86.10,2.00 86.49,2.00 86.87,2.00 87.26,2.00 87.64,2.00 88.03,2.00 88.42,2.00 88.80,2.00 89.19,2.00 89.58,2.00 89.96,2.00 90.35,2.00 90.73,2.00 91.12,2.00 91.51,2.00 91.89,2.00 92.28,2.00 92.66,2.00 93.05,2.00 93.44,2.00 93.82,2.00 94.21,2.00 94.59,2.00 94.98,2.00 95.37,2.00 95.75,2.00 96.14,2.00 96.53,2.00 96.91,2.00 97.30,2.00 97.68,2.00 98.07,2.00 98.46,2.00 98.84,2.00 99.23,2.00 99.61,2.00 100.00,2.00"
+                    fill="none" stroke="#1f7a4d" stroke-width="1.1"
+                    vector-effect="non-scaling-stroke"/>
+        </svg>
+        <div class="trace-axes"><span>0.4</span><span>10</span><span>20 GHz</span></div>
+      </div>
+      <div class="trace">
+        <div class="trace-head"><span class="dot" style="background:#b5651d"></span>
+          <b>S12</b><span class="unit">dB</span></div>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="trace-body">
+          <g class="grid">
+            <line x1="0" y1="25" x2="100" y2="25"/><line x1="0" y1="50" x2="100" y2="50"/>
+            <line x1="0" y1="75" x2="100" y2="75"/>
+            <line x1="25" y1="0" x2="25" y2="100"/><line x1="50" y1="0" x2="50" y2="100"/>
+            <line x1="75" y1="0" x2="75" y2="100"/>
+          </g>
+          <polyline points="0.00,2.00 0.39,2.00 0.77,2.00 1.16,2.00 1.54,2.00 1.93,2.00 2.32,2.00 2.70,2.00 3.09,2.00 3.47,2.00 3.86,2.00 4.25,2.00 4.63,2.00 5.02,2.00 5.41,2.00 5.79,2.00 6.18,2.00 6.56,2.00 6.95,2.00 7.34,2.00 7.72,2.00 8.11,2.00 8.49,2.00 8.88,2.00 9.27,2.00 9.65,2.00 10.04,2.00 10.42,2.00 10.81,2.00 11.20,2.00 11.58,2.00 11.97,2.00 12.36,2.00 12.74,2.00 13.13,2.00 13.51,2.00 13.90,2.00 14.29,2.00 14.67,2.00 15.06,2.00 15.44,2.00 15.83,2.00 16.22,2.00 16.60,2.00 16.99,2.00 17.37,2.00 17.76,2.00 18.15,2.00 18.53,2.00 18.92,2.00 19.31,2.00 19.69,2.00 20.08,2.00 20.46,2.00 20.85,2.00 21.24,2.00 21.62,2.00 22.01,2.00 22.39,2.00 22.78,2.00 23.17,2.00 23.55,2.00 23.94,2.00 24.32,2.00 24.71,2.00 25.10,2.00 25.48,2.00 25.87,2.00 26.25,2.00 26.64,2.00 27.03,2.00 27.41,2.00 27.80,2.00 28.19,2.00 28.57,2.00 28.96,2.00 29.34,2.00 29.73,2.00 30.12,2.00 30.50,2.00 30.89,2.00 31.27,2.00 31.66,2.00 32.05,2.00 32.43,2.00 32.82,2.00 33.20,2.00 33.59,2.00 33.98,2.00 34.36,2.00 34.75,2.00 35.14,2.00 35.52,2.00 35.91,2.00 36.29,2.00 36.68,2.00 37.07,2.00 37.45,2.00 37.84,2.09 38.22,2.34 38.61,2.65 39.00,3.03 39.38,3.50 39.77,4.11 40.15,4.90 40.54,5.97 40.93,7.43 41.31,9.52 41.70,12.64 42.08,17.51 42.47,25.53 42.86,39.36 43.24,62.69 43.63,91.88 44.02,97.57 44.40,71.17 44.79,44.94 45.17,28.76 45.56,19.42 45.95,13.84 46.33,10.33 46.72,8.00 47.10,6.39 47.49,5.23 47.88,4.38 48.26,3.73 48.65,3.23 49.03,2.83 49.42,2.51 49.81,2.25 50.19,2.04 50.58,2.00 50.97,2.00 51.35,2.00 51.74,2.00 52.12,2.00 52.51,2.00 52.90,2.00 53.28,2.00 53.67,2.00 54.05,2.00 54.44,2.00 54.83,2.00 55.21,2.00 55.60,2.00 55.98,2.00 56.37,2.00 56.76,2.00 57.14,2.00 57.53,2.00 57.92,2.00 58.30,2.00 58.69,2.00 59.07,2.00 59.46,2.00 59.85,2.00 60.23,2.00 60.62,2.00 61.00,2.00 61.39,2.00 61.78,2.00 62.16,2.00 62.55,2.00 62.93,2.00 63.32,2.00 63.71,2.00 64.09,2.00 64.48,2.00 64.86,2.00 65.25,2.00 65.64,2.00 66.02,2.00 66.41,2.00 66.80,2.00 67.18,2.00 67.57,2.00 67.95,2.00 68.34,2.00 68.73,2.00 69.11,2.00 69.50,2.00 69.88,2.00 70.27,2.00 70.66,2.00 71.04,2.00 71.43,2.00 71.81,2.00 72.20,2.00 72.59,2.00 72.97,2.00 73.36,2.00 73.75,2.00 74.13,2.00 74.52,2.00 74.90,2.00 75.29,2.00 75.68,2.00 76.06,2.00 76.45,2.00 76.83,2.00 77.22,2.00 77.61,2.00 77.99,2.00 78.38,2.00 78.76,2.00 79.15,2.00 79.54,2.00 79.92,2.00 80.31,2.00 80.69,2.00 81.08,2.00 81.47,2.00 81.85,2.00 82.24,2.00 82.63,2.00 83.01,2.00 83.40,2.00 83.78,2.00 84.17,2.00 84.56,2.00 84.94,2.00 85.33,2.00 85.71,2.00 86.10,2.00 86.49,2.00 86.87,2.00 87.26,2.00 87.64,2.00 88.03,2.00 88.42,2.00 88.80,2.00 89.19,2.00 89.58,2.00 89.96,2.00 90.35,2.00 90.73,2.00 91.12,2.00 91.51,2.00 91.89,2.00 92.28,2.00 92.66,2.00 93.05,2.00 93.44,2.00 93.82,2.00 94.21,2.00 94.59,2.00 94.98,2.00 95.37,2.00 95.75,2.00 96.14,2.00 96.53,2.00 96.91,2.00 97.30,2.00 97.68,2.00 98.07,2.00 98.46,2.00 98.84,2.00 99.23,2.00 99.61,2.00 100.00,2.00"
+                    fill="none" stroke="#b5651d" stroke-width="1.1"
+                    vector-effect="non-scaling-stroke"/>
+        </svg>
+        <div class="trace-axes"><span>0.4</span><span>10</span><span>20 GHz</span></div>
+      </div>
+      <div class="trace">
+        <div class="trace-head"><span class="dot" style="background:#8e44ad"></span>
+          <b>S22</b><span class="unit">dB</span></div>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="trace-body">
+          <g class="grid">
+            <line x1="0" y1="25" x2="100" y2="25"/><line x1="0" y1="50" x2="100" y2="50"/>
+            <line x1="0" y1="75" x2="100" y2="75"/>
+            <line x1="25" y1="0" x2="25" y2="100"/><line x1="50" y1="0" x2="50" y2="100"/>
+            <line x1="75" y1="0" x2="75" y2="100"/>
+          </g>
+          <polyline points="0.00,2.00 0.39,2.00 0.77,2.00 1.16,2.00 1.54,2.00 1.93,2.00 2.32,2.00 2.70,2.00 3.09,2.00 3.47,2.00 3.86,2.00 4.25,2.00 4.63,2.00 5.02,2.00 5.41,2.00 5.79,2.00 6.18,2.00 6.56,2.00 6.95,2.00 7.34,2.00 7.72,2.00 8.11,2.00 8.49,2.00 8.88,2.00 9.27,2.00 9.65,2.00 10.04,2.00 10.42,2.00 10.81,2.00 11.20,2.00 11.58,2.00 11.97,2.00 12.36,2.00 12.74,2.00 13.13,2.00 13.51,2.00 13.90,2.00 14.29,2.00 14.67,2.00 15.06,2.00 15.44,2.00 15.83,2.00 16.22,2.00 16.60,2.00 16.99,2.00 17.37,2.00 17.76,2.00 18.15,2.00 18.53,2.00 18.92,2.00 19.31,2.00 19.69,2.00 20.08,2.00 20.46,2.00 20.85,2.00 21.24,2.00 21.62,2.00 22.01,2.00 22.39,2.00 22.78,2.00 23.17,2.00 23.55,2.00 23.94,2.00 24.32,2.00 24.71,2.00 25.10,2.00 25.48,2.00 25.87,2.00 26.25,2.00 26.64,2.00 27.03,2.00 27.41,2.00 27.80,2.00 28.19,2.00 28.57,2.00 28.96,2.00 29.34,2.00 29.73,2.00 30.12,2.00 30.50,2.00 30.89,2.00 31.27,2.00 31.66,2.00 32.05,2.00 32.43,2.00 32.82,2.00 33.20,2.00 33.59,2.00 33.98,2.00 34.36,2.00 34.75,2.00 35.14,2.00 35.52,2.00 35.91,2.00 36.29,2.00 36.68,2.00 37.07,2.00 37.45,2.00 37.84,2.00 38.22,2.00 38.61,2.00 39.00,2.00 39.38,2.00 39.77,2.00 40.15,2.00 40.54,2.00 40.93,2.00 41.31,2.00 41.70,2.00 42.08,2.00 42.47,2.00 42.86,2.00 43.24,2.00 43.63,2.00 44.02,2.00 44.40,2.09 44.79,2.22 45.17,2.37 45.56,2.53 45.95,2.72 46.33,2.92 46.72,3.14 47.10,3.39 47.49,3.67 47.88,3.99 48.26,4.35 48.65,4.76 49.03,5.23 49.42,5.78 49.81,6.41 50.19,7.14 50.58,8.01 50.97,9.03 51.35,10.26 51.74,11.74 52.12,13.56 52.51,15.80 52.90,18.59 53.28,22.12 53.67,26.62 54.05,32.41 54.44,39.88 54.83,49.42 55.21,61.25 55.60,74.88 55.98,88.36 56.37,97.89 56.76,98.00 57.14,92.45 57.53,79.88 57.92,65.97 58.30,53.39 58.69,43.03 59.07,34.87 59.46,28.52 59.85,23.60 60.23,19.75 60.62,16.72 61.00,14.30 61.39,12.35 61.78,10.76 62.16,9.44 62.55,8.35 62.93,7.43 63.32,6.65 63.71,5.99 64.09,5.42 64.48,4.92 64.86,4.49 65.25,4.12 65.64,3.78 66.02,3.49 66.41,3.23 66.80,3.00 67.18,2.79 67.57,2.60 67.95,2.43 68.34,2.27 68.73,2.13 69.11,2.01 69.50,2.00 69.88,2.00 70.27,2.00 70.66,2.00 71.04,2.00 71.43,2.00 71.81,2.00 72.20,2.00 72.59,2.00 72.97,2.00 73.36,2.00 73.75,2.00 74.13,2.00 74.52,2.00 74.90,2.00 75.29,2.00 75.68,2.00 76.06,2.00 76.45,2.00 76.83,2.00 77.22,2.00 77.61,2.00 77.99,2.00 78.38,2.00 78.76,2.00 79.15,2.00 79.54,2.00 79.92,2.00 80.31,2.00 80.69,2.00 81.08,2.00 81.47,2.00 81.85,2.00 82.24,2.00 82.63,2.00 83.01,2.00 83.40,2.00 83.78,2.00 84.17,2.00 84.56,2.00 84.94,2.00 85.33,2.00 85.71,2.00 86.10,2.00 86.49,2.00 86.87,2.00 87.26,2.00 87.64,2.00 88.03,2.00 88.42,2.00 88.80,2.00 89.19,2.00 89.58,2.00 89.96,2.00 90.35,2.00 90.73,2.00 91.12,2.00 91.51,2.00 91.89,2.00 92.28,2.00 92.66,2.00 93.05,2.00 93.44,2.00 93.82,2.00 94.21,2.00 94.59,2.00 94.98,2.00 95.37,2.00 95.75,2.00 96.14,2.00 96.53,2.00 96.91,2.00 97.30,2.00 97.68,2.00 98.07,2.00 98.46,2.00 98.84,2.00 99.23,2.00 99.61,2.00 100.00,2.00"
+                    fill="none" stroke="#8e44ad" stroke-width="1.1"
+                    vector-effect="non-scaling-stroke"/>
+        </svg>
+        <div class="trace-axes"><span>0.4</span><span>10</span><span>20 GHz</span></div>
+      </div></div>
+          <p class="hint">实测：2000 点 · 0.400000–20.000000 GHz · 步进 9.8049 MHz</p>
+          <table class="grid dense">
+            <thead><tr><th>频率 (GHz)</th><th>Δf (MHz)</th><th>|S11| dB</th>
+              <th>|S21| dB</th><th>|S12| dB</th><th>|S22| dB</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">0.400000</td><td class="mono">9.8049</td>
+                <td class="mono">-18.21</td><td class="mono">-0.62</td>
+                <td class="mono">-1.18</td><td class="mono">-20.04</td></tr>
+              <tr><td class="mono">5.000000</td><td class="mono">9.8049</td>
+                <td class="mono">-19.07</td><td class="mono">-0.71</td>
+                <td class="mono">-1.25</td><td class="mono">-20.11</td></tr>
+              <tr><td class="mono">9.000000</td><td class="mono">9.8049</td>
+                <td class="mono">-33.84</td><td class="mono">-46.71</td>
+                <td class="mono">-40.92</td><td class="mono">-21.66</td></tr>
+              <tr><td class="mono">14.000000</td><td class="mono">9.8049</td>
+                <td class="mono">-18.65</td><td class="mono">-0.83</td>
+                <td class="mono">-1.31</td><td class="mono">-20.28</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+</div></div>
+<script>
+const TITLES = {comm:'通讯设置', motion:'轴移动控制', params:'轴参数设定', vna:'矢网控制'};
+function applyTitle(name) {
+  const t = document.getElementById('page-title');
+  if (t) t.textContent = TITLES[name] || '';
+  const c = document.getElementById('page-crumb');
+  if (c) c.textContent = '设备 / ' + (TITLES[name] || '');
+}
+const wanted = (location.hash || '#comm').slice(1);
+applyTitle(wanted);
+document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === wanted));
+document.querySelectorAll('.tabbtn').forEach(btn => {
+  btn.classList.toggle('on', btn.dataset.p === wanted);
+  btn.onclick = () => { location.hash = btn.dataset.p; };
+});
+window.addEventListener('hashchange', () => {
+  const name = (location.hash || '#comm').slice(1);
+  applyTitle(name);
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === name));
+  document.querySelectorAll('.tabbtn').forEach(btn =>
+    btn.classList.toggle('on', btn.dataset.p === name));
+});
+</script>
+</body></html>
