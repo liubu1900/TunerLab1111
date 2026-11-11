@@ -36,6 +36,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            if ! gh release create "$RELEASE_TAG" --verify-tag --title 'TunerLab 0.5.14' --notes-file TunerLabApp/docs/RELEASE_0.5.14.md >create.log 2>&1; then
+              cat create.log
+              message=$(cat create.log)
+              message=${message//'%'/'%25'}
+              message=${message//$'\n'/'%0A'}
+              echo "::error title=Release creation failed::$message"
+              exit 1
+            fi
+          fi
           cd release-assets
           sha256sum -c TunerLab-0.5.14-SHA256SUMS.txt
           for file in TunerLab-0.5.14-SHA256SUMS.txt TunerLab-0.5.14-win64.zip; do
