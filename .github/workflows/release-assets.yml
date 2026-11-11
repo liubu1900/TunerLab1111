@@ -1,0 +1,59 @@
+name: Restore verified 0.5.14 release assets
+on:
+  push:
+    paths:
+      - .github/workflows/release-assets.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v0.5.14
+      BUILD_RUN: '43057513376'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v0.5.14
+      - name: Confirm successful build and source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual=$(gh run view "$BUILD_RUN" --json headSha,conclusion --jq '.headSha + " " + .conclusion')
+          expected="$(git rev-parse HEAD) success"
+          test "$actual" = "$expected"
+      - uses: actions/download-artifact@v4
+        with:
+          name: TunerLab-windows
+          path: release-assets
+          github-token: ${{ github.token }}
+          run-id: '43057513376'
+      - name: Upload verified portable ZIP and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum -c TunerLab-0.5.14-SHA256SUMS.txt
+          for file in TunerLab-0.5.14-SHA256SUMS.txt TunerLab-0.5.14-win64.zip; do
+            uploaded=false
+            for attempt in 1 2 3; do
+              if gh release upload "$RELEASE_TAG" "$file" --clobber >upload.log 2>&1; then
+                uploaded=true
+                break
+              fi
+              cat upload.log
+              sleep 5
+            done
+            if [[ "$uploaded" != true ]]; then
+              message=$(cat upload.log)
+              message=${message//'%'/'%25'}
+              message=${message//$'\n'/'%0A'}
+              echo "::error title=Release asset upload failed::$message"
+              exit 1
+            fi
+          done
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | [.name, .size, .url] | @tsv'

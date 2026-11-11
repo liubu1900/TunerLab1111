@@ -1,6 +1,8 @@
 name: Desktop validation and Windows package
 on:
   push:
+    paths-ignore:
+      - .github/workflows/release-assets.yml
   pull_request:
   workflow_dispatch:
 permissions:
