@@ -8,7 +8,7 @@
 
 #define MyAppName "TunerLab"
 #ifndef MyAppVersion
-#define MyAppVersion "0.5.10"
+#define MyAppVersion "0.5.11"
 #endif
 #define MyAppPublisher "TunerLab"
 #define MyAppExeName "TunerLab.exe"

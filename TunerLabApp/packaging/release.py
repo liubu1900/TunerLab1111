@@ -49,6 +49,7 @@ WORKSPACE = APP_ROOT.parent                           # repo root
 RELEASES = WORKSPACE / 'releases'
 VERSION_FILE = APP_ROOT / 'tunerlab_app' / 'version.py'
 RESOURCE_FILE = APP_ROOT / 'packaging' / 'version_info.txt'
+INSTALLER_FILE = APP_ROOT / 'packaging' / 'installer.iss'
 SPEC = APP_ROOT / 'packaging' / 'tunerlab.spec'
 DIST = APP_ROOT / 'dist'
 APP_DIR = DIST / 'TunerLab'
@@ -100,7 +101,14 @@ def bump(version: str, level: str) -> str:
 
 
 def write_version(version: str, release_date: str) -> None:
-    """Write the version into both the module and the Windows resource."""
+    """Write the version into every place that carries it.
+
+    Three files must agree: the Python module (About page, window title), the
+    Windows file-version resource and the Inno Setup script (the installer's
+    file name and its *Version Information* tab).  A release whose installer
+    still says the old version is worse than no installer at all, because the
+    operator would install a package under the wrong name.
+    """
     text = VERSION_FILE.read_text(encoding='utf-8')
     text = re.sub(r"__version__\s*=\s*'[^']+'",
                   f"__version__ = '{version}'", text)
@@ -118,6 +126,11 @@ def write_version(version: str, release_date: str) -> None:
     text = re.sub(r"StringStruct\('ProductVersion', '[^']+'\)",
                   f"StringStruct('ProductVersion', '{version}.0')", text)
     RESOURCE_FILE.write_text(text, encoding='utf-8')
+
+    text = INSTALLER_FILE.read_text(encoding='utf-8')
+    text = re.sub(r'#define MyAppVersion "[^"]+"',
+                  f'#define MyAppVersion "{version}"', text)
+    INSTALLER_FILE.write_text(text, encoding='utf-8')
 
 
 # -------------------------------------------------------------------- build
@@ -271,6 +284,9 @@ def main() -> int:
           current_version() == version, current_version())
     check('版本号写入 version_info.txt',
           f"'{version}.0'" in RESOURCE_FILE.read_text(encoding='utf-8'))
+    check('版本号写入 installer.iss',
+          f'#define MyAppVersion "{version}"'
+          in INSTALLER_FILE.read_text(encoding='utf-8'))
 
     build(version)
     archive(version)
