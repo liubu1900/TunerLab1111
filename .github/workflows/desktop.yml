@@ -15,6 +15,7 @@ jobs:
     runs-on: windows-2022
     env:
       QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: '1'
       TUNERLAB_DATA_DIR: ${{ github.workspace }}/.ci-data/data
       APPDATA: ${{ github.workspace }}/.ci-data/appdata
       LOCALAPPDATA: ${{ github.workspace }}/.ci-data/localappdata
