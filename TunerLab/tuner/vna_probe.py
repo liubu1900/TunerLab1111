@@ -86,9 +86,7 @@ def make_transport(*, interface: str = 'tcpip',
 
 
 def _is_ok(resp: str) -> bool:
-    text = (resp or '').strip().lower()
-    return (text.startswith(NO_ERROR_PREFIXES) or text in ('0', '+0')
-            or 'no error' in text)
+    return V.TCPVNA._is_no_error(resp or '')
 
 
 class _ProbeSession:
@@ -101,6 +99,7 @@ class _ProbeSession:
         self.cls = True
         self.error_queue = True
         self.readback = True
+        self.pna = False
         self.notes: list[str] = []
 
     def step(self, section: str, index: int, total: int, message: str) -> None:
@@ -222,13 +221,19 @@ class _ProbeSession:
             value = self.tr.query(cmd).strip()
         except Exception as exc:  # noqa: BLE001
             value = f'<查询异常: {exc}>'
+            if self.pna:
+                # Do not read an error query through a possibly stale output
+                # buffer after a timeout. The PNA probe stops at this row.
+                return value, '<通信失败后停止查询，请重连>', 'ERROR'
         err = self.error_of() if self.error_queue else '<无错误队列>'
         self.clear()
         if value.startswith('<查询异常'):
             verdict = 'ERROR'
         elif not value:
             verdict = 'NO DATA'
-        elif value.lstrip().startswith(('-', '!')):
+        elif value.lstrip().startswith('!'):
+            verdict = 'REJECT'
+        elif cmd.endswith('*OPC?') and value.lstrip('+') != '1':
             verdict = 'REJECT'
         elif self.error_queue and not _is_ok(err):
             verdict = 'REJECT'
@@ -275,8 +280,10 @@ def suggested_dialect(result: dict) -> dict:
             out['power_cmd'] = head
         elif head == ':SENS1:BAND' and 'ifbw_cmd' not in out:
             out['ifbw_cmd'] = head
-        elif head in (':INIT1:IMM', ':INIT:IMM') and 'trigger_cmd' not in out:
-            out['trigger_cmd'] = head
+        elif cmd.upper().startswith(':SENS1:SWE:MODE SING'):
+            out['trigger_cmd'] = ':SENS1:SWE:MODE SING'
+        elif head.split(';', 1)[0] in (':INIT1:IMM', ':INIT:IMM') and 'trigger_cmd' not in out:
+            out['trigger_cmd'] = head.split(';', 1)[0]
     return out
 
 
@@ -315,7 +322,7 @@ def _summarise(result: dict) -> list[str]:
     lines.append('-113 = Undefined header（命令头本设备未定义），'
                  '不是参数错，也不是固件版本校验失败。')
     if result.get('aborted'):
-        lines.append('探测已被手动中止，结果不完整。')
+        lines.append('探测已中止，结果不完整。')
     return lines
 
 
@@ -345,6 +352,7 @@ def probe_transport(tr, *, target: str = '', interface: str = 'tcpip',
     except Exception:  # noqa: BLE001 - optional on most analyzers
         result['opt'] = ''
     result['idn_fields'] = _idn_fields(result['idn'])
+    session.pna = V.detect_vendor(result['idn']) == 'keysight_pna'
     result['capabilities'] = session.capabilities()
 
     # ---- 1b. drop the probe measurement left by a previous run ---------
@@ -361,9 +369,26 @@ def probe_transport(tr, *, target: str = '', interface: str = 'tcpip',
         pass
 
     # ---- 2. measurement definition ------------------------------------
-    total = len(DEFINE_CANDIDATES) + len(OTHER_COMMANDS)
+    define_candidates = DEFINE_CANDIDATES
+    other_commands = OTHER_COMMANDS
+    if session.pna:
+        # This is a compatibility check for a known PNA, not a spray of
+        # incompatible vendor queries that time out and desynchronise GPIB.
+        define_candidates = [row for row in DEFINE_CANDIDATES
+                             if row[0].split(' ', 1)[0] == ':CALC1:PAR:DEF:EXT']
+        excluded = {':CALC1:PAR1:SEL', ':CALC1:DATA? SDAT',
+                    ':CALC1:TRAC1:DATA? SDATA', ':CALC1:MEAS1:DATA:SDATA?',
+                    ':INIT:IMM', ':INIT1:IMM', ':INIT1:CONT OFF', ':CALC1:DATA? SDATA'}
+        other_commands = [(':SENS1:SWE:MODE HOLD', '暂停通道 1'),
+                          (':SENS1:SWE:TRIG:POIN OFF', '关闭逐点触发'),
+                          (':SENS1:AVER:STAT OFF', '单次采集不继承旧平均数据')]
+        other_commands += [row for row in OTHER_COMMANDS if row[0] not in excluded]
+        other_commands += [(':TRIG:SOUR IMM', '立即触发源（避免遗留外部触发等待）'),
+                           (':SENS1:SWE:MODE SING;*OPC?', '单通道接受一次触发并等待完成'),
+                           (':CALC1:DATA? SDATA', '读取实部/虚部复数数据')]
+    total = len(define_candidates) + len(other_commands)
     define_results: list[dict] = []
-    for index, (cmd, note) in enumerate(DEFINE_CANDIDATES):
+    for index, (cmd, note) in enumerate(define_candidates):
         if session.aborted:
             result['aborted'] = True
             break
@@ -377,11 +402,11 @@ def probe_transport(tr, *, target: str = '', interface: str = 'tcpip',
 
     # ---- 3. remaining commands ----------------------------------------
     other_results: list[dict] = []
-    for offset, (cmd, note) in enumerate(OTHER_COMMANDS):
+    for offset, (cmd, note) in enumerate(other_commands):
         if session.aborted:
             result['aborted'] = True
             break
-        session.step('命令能力', len(DEFINE_CANDIDATES) + offset, total, cmd)
+        session.step('命令能力', len(define_candidates) + offset, total, cmd)
         if '?' in cmd:
             value, err, verdict = session.query(cmd)
         else:
@@ -389,6 +414,11 @@ def probe_transport(tr, *, target: str = '', interface: str = 'tcpip',
             err, verdict, _ = session.write(cmd)
         other_results.append({'cmd': cmd, 'note': note, 'error': err,
                               'verdict': verdict, 'value': value})
+        if session.pna and verdict == 'ERROR':
+            result['aborted'] = True
+            result['capabilities']['notes'].append(
+                'PNA 通信失败后停止探测，请断开并重连后再试，避免残留响应错位')
+            break
     result['other'] = other_results
 
     try:

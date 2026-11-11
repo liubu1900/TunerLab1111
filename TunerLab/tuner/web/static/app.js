@@ -2,13 +2,23 @@
 
 /* ------------------------------------------------------------------ helpers */
 const $ = (id) => document.getElementById(id);
+let HW_CONTEXT = null;
+let PARAM_CONTEXT = null;
+let PARAM_DIRTY = false;
 
 async function api(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (method === 'POST' && (path.startsWith('/api/hardware/') || path.startsWith('/api/studio/'))) {
+    body = { ...(body || {}), context: path.includes('/params/') ? PARAM_CONTEXT : HW_CONTEXT };
+  }
   if (body !== undefined) opts.body = JSON.stringify(body);
   try {
     const res = await fetch(path, opts);
-    return await res.json();
+    const result = await res.json();
+    if (method === 'POST' && path.startsWith('/api/hardware/') && result.ok && result.data.context) {
+      HW_CONTEXT = result.data.context;
+    }
+    return result;
   } catch (e) {
     return { ok: false, error: '网络错误: ' + e.message };
   }
@@ -52,7 +62,9 @@ async function loadHwSettings() {
     $('hw-ip').value = r.data.ip || '192.168.0.11';
     $('hw-auto').checked = !!r.data.connect_on_start;
     $('hw-settings-path').textContent = r.data.path || '—';
-    $('hw-model').value = String(r.data.axis_count || 4);
+    $('hw-model').value = r.data.layout_id;
+    HW_CONTEXT = r.data.context;
+    $('hw-model').disabled = false;
     $('hw-mode').value = r.data.mode || 'real';
     $('hw-ip').disabled = ($('hw-mode').value !== 'real');
     applyUnitList(r.data.units || [], r.data.active_unit || '');
@@ -65,7 +77,7 @@ async function loadHwSettings() {
 function applyUnitList(units, activeKey) {
   const sel = $('hw-unit');
   if (!sel) return;
-  const current = sel.value || activeKey;
+  const current = activeKey || sel.value;
   sel.innerHTML = '';
   units.forEach((u) => {
     const opt = document.createElement('option');
@@ -91,7 +103,7 @@ function applyAxisSet(names) {
     });
     if (AXES.includes(current)) sel.value = current;
   });
-  buildParamsTable();
+  if (!PARAM_DIRTY) buildParamsTable();
   $('hw-model-info').textContent = AXES.length + ' 轴 (' + AXES.join(', ') + ')';
   const drill = $('hw-drill-axis');
   if (drill) {
@@ -109,6 +121,15 @@ async function updateHwStatus() {
   const r = await api('GET', '/api/hardware/status');
   if (!r.ok) return;
   const d = r.data;
+  if (d.context && JSON.stringify(d.context) !== JSON.stringify(HW_CONTEXT)) {
+    if (!PARAM_DIRTY) {
+      applyAxisSet(d.active_axes || []);
+      PARAM_CONTEXT = null;
+    }
+    HW_CONTEXT = d.context;
+  }
+  $('hw-model').disabled = d.connected;
+  $('hw-confirm-layout').disabled = d.connected;
   $('hw-state').textContent = d.connected ? '已连接' : '未连接';
   $('hw-firmware').textContent = d.firmware || '—';
   $('hw-address').textContent = d.address || '—';
@@ -147,7 +168,7 @@ function renderHwTable(axes) {
     if (a.status_fault) tr.className = 'row-fault';
     const err = (a.following_error !== undefined) ? a.following_error : (a.dpos - a.mpos);
     const cells = [
-      a.axis, a.dpos.toFixed(4), a.mpos.toFixed(4), err.toFixed(4),
+      a.axis + ' · 轴' + a.physical_axis, a.dpos.toFixed(4), a.mpos.toFixed(4), err.toFixed(4),
       a.idle ? '是' : '否', a.home_status === 1 ? '已回零' : '未回零',
       a.status, a.status_text || '正常', a.stop_reason_text || '—',
     ];
@@ -233,24 +254,29 @@ $('hw-save-settings').onclick = async () => {
 
 // Switching the tuner model changes which axes the software commands.
 $('hw-model').onchange = async () => {
-  const count = parseInt($('hw-model').value, 10);
-  const r = await api('POST', '/api/hardware/model', { axis_count: count });
+  if (PARAM_DIRTY && !confirm('放弃未保存参数并切换设备组合？')) { $('hw-model').value = HW_CONTEXT.layout_id; return; }
+  const r = await api('POST', '/api/hardware/layout', { layout_id: $('hw-model').value });
   if (!r.ok) {
-    showMsg($('hw-scale'), '切换型号失败: ' + r.error, 'error');
+    $('hw-model').value = HW_CONTEXT.layout_id;
+    showMsg($('hw-scale'), '切换组合失败: ' + r.error, 'error');
     return;
   }
   applyAxisSet(r.data.axes || []);
   showMsg($('hw-scale'),
-    'tuner 型号已切换为 ' + count + ' 轴: ' + (r.data.axes || []).join(', '), 'ok');
+    '设备组合已切换：'  + (r.data.axes || []).join(', '), 'ok');
   await loadHwParams();
   updateHwStatus();
 };
 
+$('hw-confirm-layout').onclick = () => $('hw-model').onchange();
+
 // Switching the tuner picks which physical axis block the software commands.
 $('hw-unit').onchange = async () => {
+  if (PARAM_DIRTY && !confirm('放弃未保存参数并切换 Tuner？')) { $('hw-unit').value = HW_CONTEXT.unit; return; }
   const key = $('hw-unit').value;
   const r = await api('POST', '/api/hardware/unit', { unit: key });
   if (!r.ok) {
+    $('hw-unit').value = HW_CONTEXT.unit;
     showMsg($('hw-scale'), '切换 Tuner 失败: ' + r.error, 'error');
     return;
   }
@@ -368,6 +394,8 @@ $('hw-reset').onclick = async () => {
 const PARAM_COLS = [
   ['atype', 'ATYPE'], ['units', 'UNITS'], ['speed', 'SPEED'], ['accel', 'ACCEL'],
   ['decel', 'DECEL'], ['creep', 'CREEP'], ['jog_speed', 'JOG'], ['invert_step', 'INVERT_STEP'],
+  ['home_wait', 'HOME_WAIT'], ['home_output', 'HOME_OUTPUT'], ['home_pulse', 'HOME_PULSE'],
+  ['home_output_active', 'OP_ACTIVE'], ['datum_active', 'DATUM_ACTIVE'],
   ['datum_in', 'DATUM_IN'], ['fs_limit', 'FS_LIMIT'], ['rs_limit', 'RS_LIMIT'],
   ['datum_mode', 'DATUM_MODE'], ['feedback_scale', 'FEEDBACK_SCALE'],
 ];
@@ -384,6 +412,7 @@ function buildParamsTable() {
     PARAM_COLS.forEach((c) => {
       const td = document.createElement('td');
       const inp = document.createElement('input');
+      inp.oninput = () => { PARAM_DIRTY = true; };
       inp.type = 'number'; inp.step = 'any'; inp.dataset.axis = name; inp.dataset.key = c[0];
       td.appendChild(inp); tr.appendChild(td);
     });
@@ -401,20 +430,21 @@ function fillParams(data) {
 async function loadHwParams() {
   buildParamsTable();
   const r = await api('GET', '/api/hardware/params', {});
-  if (r.ok) fillParams(r.data);
+  if (r.ok) { fillParams(r.data.axes); PARAM_CONTEXT = r.data.context; PARAM_DIRTY = false; }
 }
 $('hw-params-read').onclick = async () => {
   const r = await api('POST', '/api/hardware/params/read', {});
-  if (r.ok) { fillParams(r.data); showMsg($('hw-params-hint'), '已从控制器读取（尚未保存到文件）', 'info'); }
+  if (r.ok) { showMsg($('hw-params-hint'), JSON.stringify(r.data.states), 'info'); }
   else showMsg($('hw-params-hint'), '读取失败: ' + r.error, 'error');
 };
 $('hw-params-write').onclick = async () => {
+  if (PARAM_DIRTY) { showMsg($('hw-params-hint'), '请先保存配置，再写入控制器', 'warn'); return; }
   const axes = {};
   document.querySelectorAll('#hw-params-table input').forEach((inp) => {
     (axes[inp.dataset.axis] = axes[inp.dataset.axis] || {})[inp.dataset.key] = parseFloat(inp.value);
   });
   const r = await api('POST', '/api/hardware/params/write', { axes });
-  showMsg($('hw-params-hint'), r.ok ? '参数已写入控制器并保存到文件' : '写入失败: ' + r.error,
+  showMsg($('hw-params-hint'), r.ok ? JSON.stringify(r.data.results) : '写入失败: ' + r.error,
     r.ok ? 'ok' : 'error');
 };
 $('hw-params-save').onclick = async () => {
@@ -422,8 +452,9 @@ $('hw-params-save').onclick = async () => {
   document.querySelectorAll('#hw-params-table input').forEach((inp) => {
     (axes[inp.dataset.axis] = axes[inp.dataset.axis] || {})[inp.dataset.key] = parseFloat(inp.value);
   });
-  const r = await api('POST', '/api/hardware/params/write', { axes });
-  showMsg($('hw-params-hint'), r.ok ? '已写入控制器并保存到文件' : '保存失败: ' + r.error,
+  const r = await api('POST', '/api/hardware/params/save', { axes });
+  if (r.ok) { PARAM_CONTEXT = r.data.context; HW_CONTEXT = r.data.context; PARAM_DIRTY = false; }
+  showMsg($('hw-params-hint'), r.ok ? '已保存本地配置（未写入控制器）' : '保存失败: ' + r.error,
     r.ok ? 'ok' : 'error');
 };
 $('hw-params-load').onclick = async () => {

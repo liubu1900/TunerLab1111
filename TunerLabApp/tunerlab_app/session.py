@@ -52,14 +52,16 @@ class TunerSession(HardwareSession):
 
     def __init__(self, store=None, parent=None):
         super().__init__(store, parent)
-        self._ensure_homing_modes()
-        self._ensure_feedback_scale()
+        # Do not silently alter measured parameters when loading a profile.
 
-    def connect(self, ip: str | None = None, mode: str | None = None) -> None:
-        super().connect(ip, mode)
+    def connect(self, ip=None, mode=None):
+        return HardwareSession.connect(self, ip, mode)
+
+    def _after_connect(self):
         self._serialise_link()
         self._upgrade_controller()
         self._apply_timeout()
+        self._bind_controller()
 
     def disconnect(self) -> None:
         """Close the controller link.
@@ -78,6 +80,7 @@ class TunerSession(HardwareSession):
         super().set_axis_count(axis_count)
         self._upgrade_controller()
         self._apply_timeout()
+        self._bind_controller()
 
     def set_active_unit(self, key: str) -> None:
         """Select the tuner the console commands.
@@ -89,6 +92,7 @@ class TunerSession(HardwareSession):
         super().set_active_unit(key)
         self._upgrade_controller()
         self._apply_timeout()
+        self._bind_controller()
 
     def apply_scale_correction(self, axis: str, units: float) -> dict:
         """Write UNITS and keep ``feedback_scale`` at the encoder ratio.
@@ -147,7 +151,10 @@ class TunerSession(HardwareSession):
             axis_base=getattr(controller, 'axis_base', 0),
             op_base=getattr(controller, 'op_base', 0),
             datum_in_base=getattr(controller, 'datum_in_base', -1))
-        upgraded.initialize()
+        upgraded.initialized = controller.initialized
+        upgraded.homed_axes = set(controller.homed_axes)
+        upgraded.homed = controller.homed
+        upgraded._untrusted_home = set(getattr(controller, '_untrusted_home', set()))
         self.controller = upgraded
 
     def _ensure_homing_modes(self) -> None:

@@ -191,7 +191,7 @@ class FakeLibrary:
         return 0
 
     def get_all_axis_info(self, handle, count, idle, dpos, mpos, status):
-        for index in range(int(count)):
+        for index in range(int(getattr(count, 'value', count))):
             idle[index] = 1
             dpos[index] = float(self.positions.get(index, 0.0))
             mpos[index] = float(self.positions.get(index, 0.0))
@@ -393,7 +393,7 @@ def test_settings_round_trip(tmp_path):
     store = SettingsStore(tmp_path / 'settings.json')
     settings = TunerSettings(
         connection=ConnectionSettings(ip='192.168.1.50', connect_on_start=True),
-        axes=default_axis_params())
+        axis_count=4, axes=default_axis_params())
     store.save(settings)
     loaded = store.load()
     assert loaded.connection.ip == '192.168.1.50'
@@ -405,7 +405,7 @@ def test_settings_missing_file_returns_defaults(tmp_path):
     store = SettingsStore(tmp_path / 'absent.json')
     settings = store.load()
     assert settings.connection.ip == '192.168.0.11'
-    assert set(settings.axes) == set(TUNER_AXES)
+    assert set(settings.axes) == {'X', 'Z1', 'Z2'}
 
 
 def test_settings_corrupt_file_is_reported(tmp_path):
@@ -428,7 +428,7 @@ def test_settings_export_and_import(tmp_path):
     target = store.export(tmp_path / 'export.json', settings)
     assert target.is_file()
     imported = SettingsStore.import_from(target)
-    assert imported.axes['Z3'].datum_in == 19
+    assert imported.profiles['single_4']['tuner_1']['Z3'].datum_in == 19
 
 
 def test_settings_reject_future_schema(tmp_path):

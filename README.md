@@ -1,20 +1,24 @@
 # TunerLab
 
-面向 Windows 10/11 x64 的负载牵引调谐器运动控制与校准桌面应用。当前版本 **0.5.11**（2026-11-11）。
+面向 Windows 10/11 x64 的负载牵引调谐器运动控制与校准桌面应用。当前版本 **0.5.14**（2026-11-11）。
 
-## 双 Tuner 支持
+## Tuner组合与三页联动
 
-一台控制器可同时驱动两台 Tuner，各自占用不同的物理轴号：
+通讯设置、轴移动控制和轴参数设定共用设备组合与当前Tuner：
 
-| Tuner | X | Z1 | Z2 |
-|---|---|---|---|
-| 左 Tuner | 0 | 1 | 2 |
-| 右 Tuner | 3 | 4 | 5 |
+| 组合 | Tuner | 逻辑轴 → 物理轴 |
+|---|---|---|
+| 单台三轴 | Tuner 1 | X→0、Z1→1、Z2→2 |
+| 双台三轴 | 左 / 右 | 左0/1/2；右3/4/5 |
+| 单台四轴 | Tuner 1 | X→0、Z1→1、Z2→2、Z3→3 |
 
-在「通讯设置」页选择 **当前 Tuner** 后，所有运动、回零、标定与参数编辑都只作用于所选的那台；
-每台 Tuner 有独立的轴参数，切换时互不覆盖。切换不会重连控制器。
-轴面板标题与状态栏会显示该轴的物理轴号，便于与接线图核对。
-详见 [硬件接入文档](TunerLab/docs/HARDWARE.md)。
+每种组合、每台Tuner、每轴参数独立保存。切换左右不重连、不自动写参数或回零；更换组合需要先断开。真实连接前需明确确认安装组合；本地保存、读取对比和写入读回校验分别操作。
+详见 [联动验收记录](TunerLabApp/docs/TUNER_CONFIGURATION_ACCEPTANCE.md)。
+
+## Windows下载
+
+[GitHub Releases](https://github.com/liubu1900/TunerLab1111/releases) 提供当前用户安装程序 `TunerLab-0.5.14-Setup.exe`、便携包 `TunerLab-0.5.14-win64.zip` 和SHA256清单。
+便携包须完整解压，保留 `_internal` 目录，再启动 `TunerLab.exe`。GPIB/82357B另外需要Keysight IO Libraries Suite；用户现场N5224A地址为 `GPIB0::16::INSTR`。
 
 ## 从源码启动桌面端
 
@@ -31,7 +35,7 @@ cd TunerLabApp
 
 ## 推荐操作顺序
 
-1. **通讯设置**：选择当前 Tuner（左/右）、虚拟/真实控制器、3/4 轴型号，连接。首次熟悉界面用虚拟模式。
+1. **通讯设置**：选择并确认单三轴/双三轴/单四轴组合、当前Tuner和虚拟/真实模式，连接。首次熟悉界面用虚拟模式。
 2. **轴移动与参数**：检查方向、单位、行程、回零和标度；实机校准前确认控制器状态。
 3. **矢网控制**：选择接口（TCP/IP 或 GPIB/VISA）、厂商、地址与频率，连接并做一次扫描。GPIB（如 Agilent 82357B USB-GPIB）需安装 Keysight IO Libraries Suite，详见 [VNA 接入指南](TunerLab/docs/VNA.md)；首次接真机若报 `-113 Undefined header`，用「系统 → SCPI 调试工具」探测该机型的真实命令集，可一键复制报告 / 导出 JSON / 应用为后续连接的方言；模拟运动与模拟 RF 是不同选项，按任务核实来源。
 4. **建库向导**：参考面与仪器 → 运动与行程 → 频率方案 → 布点计划 → 前提检查与建库。
@@ -59,15 +63,16 @@ cd TunerLabApp
 ..\.venv\Scripts\python -m tunerlab_app --smoke-test
 ..\.venv\Scripts\python -m pip install pyinstaller==6.16.0
 ..\.venv\Scripts\python -m PyInstaller packaging\tunerlab.spec --noconfirm --clean
+..\.venv\Scripts\python packaging\windows_runtime.py
 ```
 
-生成 `TunerLabApp/dist/TunerLab/TunerLab.exe`。可用 Inno Setup 6 编译 `packaging/installer.iss` 生成安装器。GitHub Actions 的 **Desktop validation and Windows package** 会在 Windows 上测试、打包、执行 EXE 冒烟检查、逐文件 SHA-256 校验 ZIP，并将 ZIP 保存为当前仓库的 Actions artifact（保留 14 天）；未配置对外发布步骤，访问权限跟随仓库。
+生成 `TunerLabApp/dist/TunerLab/TunerLab.exe`。SDK所需VC++2010 SP1 x64运行时应通过Microsoft官方安装器安装；`windows_runtime.py`将实际依赖MSVCR100.dll复制到包内并校验x64架构及SDK加载，不连接控制器。使用Inno Setup 6.5及以上编译 `packaging/installer.iss` 生成简体中文安装程序。
+
+GitHub Actions的 **Desktop validation and Windows package** 会在Linux/Windows运行测试，构建Windows EXE、安装程序及便携ZIP，检查安装后启动和SDK加载，并校验ZIP文件。产物保留为Actions artifact（14天）；推送与应用版本一致的 `v*` 标签时，仅在全部验证通过后自动创建GitHub Release并上传安装器、ZIP和SHA256清单。
 
 ### 一键发版
 
-`packaging/release.py` 负责整条发布链：自增版本号并同步写入 `version.py` 与
-`version_info.txt` → PyInstaller 构建 → 补齐 VC++/MFC 运行时 → 冻结包 `--version`
-与 `--smoke-test` 自检 → 逐文件 SHA-256 校验打包进 `releases/`。
+`packaging/release.py` 用于Windows本地打包：自增版本并同步 `version.py`、`version_info.txt` 和 `installer.iss` → PyInstaller构建 → 补齐VC++2010 x64运行时 → EXE版本资源及 `--smoke-test` 核对 → SHA256校验并打包进 `releases/`。失败时不生成新压缩包；脚本不会自行推送GitHub或发布Release。
 
 ```powershell
 cd TunerLabApp

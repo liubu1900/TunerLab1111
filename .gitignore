@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.ci-data/
 
 # --- Virtual environment (442M, regenerated from requirements) ---
 .venv/

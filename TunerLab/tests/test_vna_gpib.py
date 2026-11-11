@@ -282,8 +282,11 @@ class _FakeController:
     def set_power(self, *args):
         pass
 
-    def set_ifbw(self, *args):
-        pass
+    def set_ifbw(self, value):
+        self.ifbw = value
+
+    def get_config(self):
+        return {'ifbw_hz': self.ifbw}
 
     def close(self):
         pass

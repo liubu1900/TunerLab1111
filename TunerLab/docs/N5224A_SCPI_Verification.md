@@ -1,4 +1,6 @@
-# Agilent N5224A SCPI 指令集核对（真机 + 手册逐条对照）
+# Agilent N5224A SCPI 指令集核对（历史记录）
+
+> 当前修订说明：本文保留最初探测及修复历史，其中 INIT1:IMM 配置和 +104 处理描述已被后续实现补充。现行指令以 [离线手册核对](N5224A_OFFLINE_MANUAL_AUDIT.md) 为准；不要将下文历史结论当成修改后完整流程已实机通过。
 
 > 仪器：Agilent Technologies N5224A，序列号 MY51441375，固件 **A.09.90.19**
 > 接口：GPIB0::16::INSTR（Agilent 82357B USB-GPIB）
@@ -108,3 +110,7 @@ trigger_cmd     = :INIT1:IMM             # 必须带通道号
 - SOURce:POWer（LEVel/IMMediate/AMPLitude 可选节点）：https://helpfiles.keysight.com/csg/pxivna/Programming/GP-IB_Command_Finder/source.htm
 - FORMat:DATA（ASCii/REAL32/REAL64）：https://helpfiles.keysight.com/csg/e5052b/programming/new_command_reference/format/scpi_format_data.htm
 - 迹线/测量/通道引用规则（SELect 名称大小写敏感、MNUMber）：https://helpfiles.keysight.com/csg/pxivna/Programming/Learning_about_GPIB/Referring_to_Traces_Measurements_Channels_Windows_Using_SCPI.htm
+
+## 后续专项复核说明
+
+上文第 7 节描述的是原始 0.5.13 的修复历史，不代表当前工作区的全部行为。后续已增加同名测量参数核对、PNA 必需配置错误检查、超时断开、精确完成确认，并使已识别 PNA 的探测工具避开 error3.txt 中已知不兼容的跨厂商命令。当前实现及现场步骤见 [N5224A_GPIB_PRECHECK.md](N5224A_GPIB_PRECHECK.md)。随后已成功读取用户提供的 pnahelp.chm，并修复触发源与 INIT:IMM 配合不符的问题，见 [离线手册核对](N5224A_OFFLINE_MANUAL_AUDIT.md)。`PAR:EXT` 在 error3.txt 中返回的是 +104，而非 -113；不能因此认为该命令头不支持。

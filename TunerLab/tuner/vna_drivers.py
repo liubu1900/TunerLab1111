@@ -27,6 +27,7 @@ firmware still works on first contact.
 """
 from __future__ import annotations
 
+import csv
 import os
 import re
 import socket
@@ -281,6 +282,7 @@ class VISASCPI:
             inst.timeout = max(500, int(self.timeout * 1000))
             inst.read_termination = self.read_termination
             inst.write_termination = self.write_termination
+            inst.send_end = True  # GPIB command termination uses EOI.
         except Exception:  # noqa: BLE001
             try:
                 inst.close()
@@ -361,10 +363,11 @@ _VENDOR_PROFILES = {
     },
     'keysight_pna': {   # PNA / PNA-X (N5247A, ...)
         # PNA creates *named* measurements with DEFine:EXTended; the plain
-        # CALC1:PAR:DEF header is not defined on that command tree (-113).
+        # Plain DEF is superseded and rejects the quoted legacy parameter (-158).
         # Verified live on the workshop's N5224A (firmware A.09.90.19,
         # GPIB0::16::INSTR, probe run 2026-11-11): DEF:EXT accepted with
-        # +0, the ENA / SDEF / PAR:EXT / legacy forms all rejected.
+        # +104 on repeated DEF:EXT / PAR:EXT means a name collision;
+        # ENA / SDEF / legacy forms were rejected.
         'define_cmd': ':CALC1:PAR:DEF:EXT',
         'fetch_mnemonic': 'SDATA',
         # Same probe: SOUR1:POW:LEV and SOUR1:POW:LEV:IMM:AMPL were both
@@ -372,7 +375,7 @@ _VENDOR_PROFILES = {
         # PNA tree), so the shared ENA-style header works everywhere.
         'power_cmd': ':SOUR1:POW:LEV',
         'ifbw_cmd': ':SENS1:BAND',
-        'trigger_cmd': ':INIT1:IMM',
+        'trigger_cmd': ':SENS1:SWE:MODE SING',
     },
     'ceyear': {         # Ceyear 思仪 AV3672 (ENA-like SCPI)
         'define_cmd': ':CALC1:PAR:DEF',
@@ -447,13 +450,19 @@ def is_duplicate_measurement(resp: str) -> bool:
     even though ``:CALC1:PAR:DEF:EXT`` had succeeded with +0 on the first run.
 
     Keysight error 104 text is "Duplicate measurement name"; some firmware
-    abbreviates it, so match on the number plus a loose keyword rather than an
-    exact string.
+    abbreviates it, so require the exact signed error code and collision text rather than
+    matching a numeric substring.
     """
-    text = (resp or '').lower()
-    if '104' not in text:
+    code, separator, message = (resp or '').strip().partition(',')
+    if not re.fullmatch(r'[+-]?[0-9]+', code.strip()):
         return False
-    return any(word in text for word in ('duplicat', 'measurement', 'name'))
+    try:
+        duplicate_code = int(code) == 104
+    except ValueError:
+        return False
+    text = message.lower()
+    return bool(separator and duplicate_code and (
+        'duplicat' in text or ('name' in text and 'already exists' in text)))
 
 
 # --------------------------------------------------------------------------- #
@@ -532,6 +541,8 @@ class TCPVNA:
             errs = self.read_errors()
             notes = ([self.dialect_warning] if self.dialect_warning else []) + errs
             self.last_error = '; '.join(notes) if notes else None
+            if errs and self.vendor_key == 'keysight_pna':
+                raise RuntimeError('PNA configuration rejected: ' + '; '.join(errs))
             return self.idn
 
     def close(self) -> None:
@@ -548,38 +559,25 @@ class TCPVNA:
             return self.transport.query(cmd)
 
     def _apply_profile(self) -> None:
-        prof = _VENDOR_PROFILES.get(self.vendor_key, _VENDOR_PROFILES['generic'])
-        self._define_cmd = prof['define_cmd']
-        self._fetch_mnemonic = prof['fetch_mnemonic']
-        self._power_cmd = prof['power_cmd']
-        self._ifbw_cmd = prof['ifbw_cmd']
-        self._trigger_cmd = prof['trigger_cmd']
-        if self.dialect:
-            self.apply_dialect(self.dialect)
+        self.apply_dialect(self.dialect)
 
     def apply_dialect(self, dialect: Optional[dict]) -> dict:
-        """Pin the SCPI commands discovered by the debug tool's probe.
-
-        Only keys in :data:`DIALECT_FIELDS` are honoured, so a stale probe
-        report from another instrument cannot inject arbitrary settings.
-        """
+        """Replace overrides, restoring omitted fields to the vendor profile."""
         clean = {k: str(v).strip() for k, v in (dialect or {}).items()
                  if k in DIALECT_FIELDS and str(v or '').strip()}
-        if not clean:
-            self.dialect = {}
-            return {}
-        self.dialect = clean
-        if 'define_cmd' in clean:
-            self._define_cmd = clean['define_cmd']
-        if 'fetch_mnemonic' in clean:
-            self._fetch_mnemonic = clean['fetch_mnemonic']
-        if 'power_cmd' in clean:
-            self._power_cmd = clean['power_cmd']
-        if 'ifbw_cmd' in clean:
-            self._ifbw_cmd = clean['ifbw_cmd']
-        if 'trigger_cmd' in clean:
-            self._trigger_cmd = clean['trigger_cmd']
-        return clean
+        if self.vendor_key == 'keysight_pna':
+            trigger = clean.get('trigger_cmd')
+            if trigger and trigger.upper() in (':INIT1:IMM', ':INIT:IMM', ':INITIATE:IMMEDIATE'):
+                clean['trigger_cmd'] = ':SENS1:SWE:MODE SING'
+                self.dialect_warning = '旧 PNA 手动触发方言已迁移为手册推荐的单通道 SING 扫描'
+            elif trigger and trigger.upper() != ':SENS1:SWE:MODE SING':
+                raise ValueError('PNA 单次扫描须使用 :SENS1:SWE:MODE SING，请重新应用方言')
+        with self.lock:
+            profile = _VENDOR_PROFILES.get(self.vendor_key, _VENDOR_PROFILES['generic'])
+            for field in DIALECT_FIELDS:
+                setattr(self, '_' + field, clean.get(field, profile[field]))
+            self.dialect = clean
+        return dict(clean)
 
     # -- error handling --------------------------------------------------
     def _clear_error_queue(self) -> None:
@@ -594,9 +592,9 @@ class TCPVNA:
     @staticmethod
     def _is_no_error(resp: str) -> bool:
         """Recognise the IEEE-488.2 'queue empty' replies across vendors."""
-        low = resp.strip().lower()
-        return (low.startswith('+0') or low.startswith('0,')
-                or low in ('0', '+0') or 'no error' in low)
+        code = resp.strip().partition(',')[0].strip()
+        return bool(re.fullmatch(r'[+-]?0+', code))
+
 
     def _classify_error(self) -> tuple[str, str]:
         """Return ``('ok'|'error'|'unknown', response)`` for :SYST:ERR?.
@@ -631,6 +629,30 @@ class TCPVNA:
         if err is not None:
             self._clear_error_queue()
 
+    def _fail_pna(self, message: str) -> None:
+        # After a rejected partial configuration or a timed-out query, local
+        # metadata/output buffers may no longer match the instrument. Require
+        # reconnect rather than permitting another apparently valid scan.
+        self.last_error = message
+        try:
+            self.transport.close()
+        except Exception:
+            pass
+        raise RuntimeError(message)
+
+    def _write_setting(self, cmd: str) -> None:
+        """PNA errors must not be hidden behind a successful VISA write."""
+        try:
+            self.transport.write(cmd)
+        except Exception as exc:
+            if self.vendor_key == 'keysight_pna':
+                self._fail_pna(f'PNA write failed: {cmd}: {exc}')
+            raise
+        if self.vendor_key == 'keysight_pna':
+            verdict, response = self._classify_error()
+            if verdict != 'ok':
+                self._fail_pna(f'PNA command failed: {cmd}: {response}')
+
     def read_errors(self) -> list[str]:
         errs: list[str] = []
         for _ in range(12):
@@ -638,7 +660,7 @@ class TCPVNA:
                 r = self.transport.query(':SYST:ERR?').strip()
             except Exception:  # noqa: BLE001 - older GPIB gear may lack a queue
                 break
-            if r.startswith('+0') or r.startswith('0,') or not r:
+            if self._is_no_error(r) or not r:
                 break
             errs.append(r)
             if len(errs) >= 12:
@@ -648,10 +670,15 @@ class TCPVNA:
     # -- setup -----------------------------------------------------------
     def _preset(self) -> None:
         # ASCII complex data so parsing is identical across vendors.
-        self._send_optional(':FORMat:DATA ASCii')
-        self._send_optional(':SENS1:SWE:TYPE LIN')
-        # Single-sweep mode (best effort; ignored where unsupported).
-        self._send_optional(':INIT1:CONT OFF')
+        send = self._write_setting if self.vendor_key == 'keysight_pna' else self._send_optional
+        if self.vendor_key == 'keysight_pna':
+            send(':SENS1:SWE:MODE HOLD')
+            send(':SENS1:SWE:TRIG:POIN OFF')
+            send(':SENS1:AVER:STAT OFF')
+        send(':FORMat:DATA ASCii')
+        send(':SENS1:SWE:TYPE LIN')
+        if self.vendor_key != 'keysight_pna':
+            send(':INIT1:CONT OFF')
         for name in self.S_PARAMS:
             self._define_measurement(name, name)
         self._select('S11')
@@ -663,6 +690,9 @@ class TCPVNA:
         analyzers that address traces by index rather than by name.
         """
         headers = [self._define_cmd]
+        if self.vendor_key == 'keysight_pna':
+            # Do not deliberately send R&S/ENA/legacy headers to a known PNA.
+            return list(dict.fromkeys(headers + [':CALC1:PAR:DEF:EXT', ':CALC1:PAR:EXT']))
         for extra in STANDARD_DEFINE_HEADERS:
             if extra not in headers:
                 headers.append(extra)
@@ -741,17 +771,38 @@ class TCPVNA:
                 verdict, resp = self._classify_error()
                 if verdict == 'unknown':
                     queue_usable = False
-                elif verdict == 'ok' or (verdict == 'error'
-                                         and is_duplicate_measurement(resp)):
-                    # +104 "Duplicate measurement name" proves this header WAS
-                    # understood -- only an undefined header yields -113.  The
-                    # measurement already exists under the exact name we asked
-                    # for (left over from an earlier session or a probe run),
-                    # so reusing it is safe and makes connect() idempotent.
-                    # Without this, every reconnect on the workshop N5224A
-                    # failed with "failed to define measurement S11".
+                elif verdict == 'ok':
                     self._clear_error_queue()
-                    self._define_cmd = header       # reuse for S21/S12/S22
+                    self._define_cmd = header
+                    return
+                elif is_duplicate_measurement(resp):
+                    # A name collision says nothing about the existing parameter.
+                    # Never relabel another measurement or silently reuse it.
+                    try:
+                        catalog_command = (':CALC1:PAR:CAT:EXT?' if self.vendor_key == 'keysight_pna'
+                                           else ':CALC1:PAR:CAT?')
+                        catalog = self.transport.query(catalog_command).strip()
+                        # PNA returns one quoted comma-separated catalogue;
+                        # other instruments quote individual CSV fields.
+                        fields = next(csv.reader([catalog], skipinitialspace=True))
+                        if len(fields) == 1:
+                            fields = next(csv.reader(fields, skipinitialspace=True))
+                        pairs = (dict(zip(fields[::2], fields[1::2]))
+                                 if len(fields) % 2 == 0 else {})
+                        actual = pairs.get(name)
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f'Cannot verify existing measurement {name}; '
+                            'inspect its parameter on the analyzer before reconnecting') from exc
+                    canonical = re.sub(r'^S([1-9])_([1-9])$', r'S\1\2',
+                                       actual.strip().upper()) if actual is not None else None
+                    if canonical != param.upper():
+                        raise RuntimeError(
+                            f'Existing measurement {name} maps to {actual!r}, '
+                            f'expected {param}; rename the conflicting measurement '
+                            'on the analyzer before reconnecting')
+                    self._clear_error_queue()
+                    self._define_cmd = header
                     return
                 else:
                     self._clear_error_queue()
@@ -774,7 +825,20 @@ class TCPVNA:
             '若仪器报 -113，请用「SCPI 调试工具」探测该型号支持的命令集。')
 
     def _select(self, name: str) -> None:
-        self._send_optional(f":CALC1:PAR:SEL '{name}'")
+        send = self._write_setting if self.vendor_key == 'keysight_pna' else self._send_optional
+        send(f":CALC1:PAR:SEL '{name}'")
+        if self.vendor_key == 'keysight_pna':
+            # Equation Editor can make SDATA represent a different parameter
+            # even when the selected name/catalogue says S11. Never silently
+            # alter an existing user's equation; refuse ambiguous data instead.
+            try:
+                equation = self.transport.query(':CALC1:EQU:STAT?').strip().lstrip('+')
+            except Exception as exc:
+                self._fail_pna(f'Cannot verify PNA Equation Editor state: {exc}')
+            verdict, error = self._classify_error()
+            if verdict != 'ok' or equation not in ('0', 'OFF'):
+                self._fail_pna(f'PNA measurement {name}: Equation Editor must be OFF '
+                               f'for S-parameter acquisition (state={equation!r}, error={error})')
 
     # -- setters ---------------------------------------------------------
     def set_sweep(self, start_hz: float, stop_hz: float, points: int) -> None:
@@ -803,22 +867,47 @@ class TCPVNA:
                 'sweep; set points to 1 for single-frequency calibration')
         sweep_stop = start if n == 1 else stop
         with self.lock:
-            self.transport.write(f":SENS1:FREQ:STAR {start:.10g}")
-            self.transport.write(f":SENS1:FREQ:STOP {sweep_stop:.10g}")
-            self.transport.write(f":SENS1:SWE:POIN {n}")
+            self._write_setting(f":SENS1:FREQ:STAR {start:.10g}")
+            self._write_setting(f":SENS1:FREQ:STOP {sweep_stop:.10g}")
+            self._write_setting(f":SENS1:SWE:POIN {n}")
             self._sweep = {'start': start, 'stop': sweep_stop, 'points': n}
             self.frequencies = (np.asarray([start], dtype=float) if n == 1
                                 else np.linspace(start, stop, n))
 
     def set_power(self, dbm: float) -> None:
+        value = float(dbm)
+        if not np.isfinite(value):
+            raise ValueError('power must be finite')
         with self.lock:
-            self.transport.write(f"{self._power_cmd} {float(dbm):.6g}")
-            self._power = float(dbm)
+            self._write_setting(f"{self._power_cmd} {value:.6g}")
+            if self.vendor_key == 'keysight_pna':
+                # A scalar UI power applies to both source ports used by the
+                # 2-port S-matrix, even if the front panel uncoupled their power.
+                port2 = re.sub(r':POW(?:ER)?[0-9]*(?=:|$)', ':POW2', self._power_cmd,
+                               count=1, flags=re.IGNORECASE)
+                if port2 != self._power_cmd:
+                    self._write_setting(f'{port2} {value:.6g}')
+            self._power = value
 
     def set_ifbw(self, hz: float) -> None:
+        value = float(hz)
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError('IF bandwidth must be finite and positive')
         with self.lock:
-            self.transport.write(f"{self._ifbw_cmd} {float(hz):.6g}")
-            self._ifbw = float(hz)
+            self._write_setting(f"{self._ifbw_cmd} {value:.6g}")
+            if self.vendor_key == 'keysight_pna':
+                # The PNA manual explicitly permits rounding to the next valid
+                # bandwidth without an error. Report what was actually applied.
+                try:
+                    actual = float(self.transport.query(f'{self._ifbw_cmd}?').strip())
+                except Exception as exc:
+                    self._fail_pna(f'PNA IFBW readback failed: {exc}')
+                verdict, error = self._classify_error()
+                if verdict != 'ok' or not np.isfinite(actual) or actual <= 0:
+                    self._fail_pna(f'Invalid PNA IFBW readback: {actual!r}; {error}')
+                self._ifbw = actual
+            else:
+                self._ifbw = value
 
     def get_config(self) -> dict:
         return {
@@ -831,6 +920,7 @@ class TCPVNA:
             'power_cmd': self._power_cmd,
             'ifbw_cmd': self._ifbw_cmd,
             'define_cmd': self._define_cmd,
+            'trigger_cmd': self._trigger_cmd,
             'dialect': dict(self.dialect),
             'dialect_warning': self.dialect_warning,
             'error_queue_usable': self._error_queue_state,
@@ -839,6 +929,24 @@ class TCPVNA:
     # -- acquisition -----------------------------------------------------
     def trigger_single(self) -> bool:
         with self.lock:
+            if self.vendor_key == 'keysight_pna':
+                # PNA manual: INIT:IMM requires MAN, while the documented
+                # simple single-channel method uses IMM + SWE:MODE SING.
+                self._write_setting(':SENS1:SWE:MODE HOLD')
+                self._write_setting(':TRIG:SOUR IMM')
+                self._write_setting(self._trigger_cmd)
+                try:
+                    response = self.transport.query('*OPC?').strip()
+                except Exception as exc:
+                    self._fail_pna(
+                        f'PNA sweep completion query failed: {exc}; reconnect '
+                        'before retrying to avoid stale GPIB responses')
+                if response.lstrip('+') != '1':
+                    self._fail_pna(f'PNA *OPC? expected 1, got {response!r}')
+                verdict, error = self._classify_error()
+                if verdict != 'ok':
+                    self._fail_pna(f'PNA sweep failed: {error}')
+                return True
             candidates = [
                 f"{self._trigger_cmd};*OPC?",
                 ':INIT:IMM;*OPC?',
@@ -864,7 +972,17 @@ class TCPVNA:
             raise RuntimeError('trigger did not confirm completion (*OPC? != 1)')
 
     def _fetch_trace(self) -> np.ndarray:
-        resp = self.transport.query(f":CALC1:DATA? {self._fetch_mnemonic}")
+        command = f":CALC1:DATA? {self._fetch_mnemonic}"
+        try:
+            resp = self.transport.query(command)
+        except Exception as exc:
+            if self.vendor_key == 'keysight_pna':
+                self._fail_pna(f'PNA data query failed: {command}: {exc}')
+            raise
+        if self.vendor_key == 'keysight_pna':
+            verdict, error = self._classify_error()
+            if verdict != 'ok':
+                self._fail_pna(f'PNA data query rejected: {command}: {error}')
         parts = [x for x in resp.replace(' ', '').split(',') if x != '']
         vals = [float(x) for x in parts]
         if len(vals) % 2 != 0:
@@ -896,23 +1014,24 @@ class TCPVNA:
     def measure(self) -> Measurement:
         if not self.connected:
             raise RuntimeError('VNA not connected')
-        self.trigger_single()
-        traces = self.fetch_all()
-        f = self.frequencies
-        s = np.empty((f.size, 2, 2), dtype=complex)
-        for key, (op, ip) in {'S11': (0, 0), 'S21': (1, 0),
-                              'S12': (0, 1), 'S22': (1, 1)}.items():
-            s[:, op, ip] = traces[key]
-        cal = vna_calibration.get_state()
-        return Measurement(
-            f.copy(), s, False,
-            {'source': 'physical_vna', 'idn': self.idn,
-             'resource': self.resource, 'interface': self.interface,
-             'vendor': self.vendor_key,
-             'calibration_validated': bool(cal.verified),
-             'calibration_method': cal.method,
-             'calibration_timestamp': cal.timestamp,
-             'calibration_valid': bool(vna_calibration.is_valid())})
+        with self.lock:
+            self.trigger_single()
+            traces = self.fetch_all()
+            f = self.frequencies
+            s = np.empty((f.size, 2, 2), dtype=complex)
+            for key, (op, ip) in {'S11': (0, 0), 'S21': (1, 0),
+                                  'S12': (0, 1), 'S22': (1, 1)}.items():
+                s[:, op, ip] = traces[key]
+            cal = vna_calibration.get_state()
+            return Measurement(
+                f.copy(), s, False,
+                {'source': 'physical_vna', 'idn': self.idn,
+                 'resource': self.resource, 'interface': self.interface,
+                 'vendor': self.vendor_key,
+                 'calibration_validated': bool(cal.verified),
+                 'calibration_method': cal.method,
+                 'calibration_timestamp': cal.timestamp,
+                 'calibration_valid': bool(vna_calibration.is_valid())})
 
     # -- convenience -----------------------------------------------------
     def to_db(self, s: np.ndarray) -> np.ndarray:

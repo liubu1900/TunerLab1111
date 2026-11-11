@@ -1,43 +1,15 @@
-"""Persistent TunerLab settings: controller link plus per-axis motion parameters.
+"""Schema 6 installation settings with fixed layouts and independent parameters.
 
-The settings file is a small JSON document written next to the application data. It is
-the single place where the operator's choices survive a restart, so it is written
-atomically (temp file plus replace) and validated on load.
-
-Layout::
-
-    {
-      "schema_version": 3,
-      "connection": {"ip": "192.168.0.11", "connect_on_start": false},
-      "mode": "real",
-      "axis_count": 4,
-      "axes": {"X": {...}, "Z1": {...}, "Z2": {...}, "Z3": {...}}
-    }
-
-``axis_count`` selects the tuner model (3 = X/Z1/Z2, 4 = X/Z1/Z2/Z3). The ``axes``
-map may keep parameters for axes that are not part of the active model, so
-switching back and forth does not lose a tuned axis.
-
-``mode`` selects the controller backend: ``real`` drives the Zmotion controller,
-``virtual`` drives the simulated one so the console can be rehearsed without
-hardware. Schema 1 and 2 had no such field and always meant ``real``.
-
-Schema 4 adds two tuners on one controller. ``active_unit`` picks which one the
-console commands, ``units`` holds their physical axis blocks and wiring offsets,
-and ``axes_by_unit`` keeps an independent set of axis parameters per tuner so
-tuning the left tuner never changes the right one. Files written by schema 1–3
-are migrated on load: their ``axes`` become the left tuner's parameters and the
-origin-input base is inferred from the stored ``X`` channel.
-
-Schema 5 adds ``vna_dialect``: the SCPI command set pinned by the SCPI debug
-tool's probe for the real analyzer (e.g. the workshop's GPIB N5244/N5224), so a
-verified dialect survives a restart instead of being re-negotiated with a
-handful of ``-113`` probes on every connect.
+Legacy schemas are backed up and retained for inspection; ambiguous installations
+require explicit confirmation before a real connection. Runtime positions, homing
+and readback verification are never persisted as hardware truth.
 """
 from __future__ import annotations
 
 import json
 import os
+import copy
+import uuid
 from dataclasses import dataclass, field, asdict, replace
 from pathlib import Path
 from typing import Any, Mapping
@@ -48,6 +20,7 @@ from .axis_params import (
 )
 from .tuner_units import (
     DEFAULT_UNIT_KEY, TunerUnit, default_units, normalise_units, validate_units,
+    layout_units, validate_layout,
 )
 
 __all__ = ['ConnectionSettings', 'TunerSettings', 'SettingsStore',
@@ -55,7 +28,7 @@ __all__ = ['ConnectionSettings', 'TunerSettings', 'SettingsStore',
            'SCHEMA_VERSION']
 
 #: Bumped when the on-disk layout changes incompatibly.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 #: Factory IP of a Zmotion controller.
 DEFAULT_IP = '192.168.0.11'
@@ -99,250 +72,234 @@ class ConnectionSettings:
                    connect_on_start=bool(data.get('connect_on_start', False)))
 
 
-@dataclass
 class TunerSettings:
-    """Complete persisted configuration of the motion subsystem."""
+    """Schema 6: fixed layouts and independent per-layout/per-unit parameters.
 
-    connection: ConnectionSettings = field(default_factory=ConnectionSettings)
-    #: Controller backend: 'real' (the Zmotion controller) or 'virtual'.
-    mode: str = 'real'
-    #: Tuner model: 3 axes (X/Z1/Z2) or 4 axes (X/Z1/Z2/Z3).
-    axis_count: int = DEFAULT_AXIS_COUNT
-    #: Per-axis parameters. Always holds an entry for every axis of the active
-    #: model; axes of the other model may be present as well so that switching
-    #: back and forth keeps a tuned axis.
-    axes: dict[str, AxisParams] = field(default_factory=default_axis_params)
+    Legacy ``axes``/``axis_count`` are views, never separate stored authorities.
+    """
 
-    # -- schema 4: two tuners on one controller ---------------------------
-    #: Key of the tuner currently selected in the UI / console.
-    active_unit: str = DEFAULT_UNIT_KEY
-    #: Physical axis block and wiring of each tuner.
-    units: dict[str, TunerUnit] = field(default_factory=default_units)
-    #: Independent per-axis parameters per tuner. ``axes`` is the active
-    #: tuner's view of this mapping; :meth:`TunerSettings.unit_axes` is the
-    #: authoritative accessor.
-    axes_by_unit: dict[str, dict[str, AxisParams]] = field(default_factory=dict)
-
-    # -- schema 5: pinned SCPI dialect of the real VNA ---------------------
-    #: Command set discovered by the SCPI debug tool's probe and pinned so
-    #: later VNA connections skip the dialect negotiation.  Keys are a
-    #: subset of ``vna_drivers.DIALECT_FIELDS``; unknown keys are dropped on
-    #: load, so a stale probe report cannot inject arbitrary settings.
-    vna_dialect: dict[str, str] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        self.mode = str(self.mode).strip().lower()
+    def __init__(self, connection=None, mode='real', axis_count=None, axes=None,
+                 active_unit=None, units=None, axes_by_unit=None, vna_dialect=None,
+                 layout_id=None, profiles=None, active_by_layout=None,
+                 layout_confirmed=False, controller_id=None, legacy_config=None,
+                 configuration_error='', extra=None):
+        self.connection = connection or ConnectionSettings()
+        self.mode = str(mode).lower()
         if self.mode not in ('real', 'virtual'):
-            raise ValueError(
-                f'unsupported controller mode {self.mode!r}; '
-                "expected 'real' or 'virtual'")
-        self.axis_count = int(self.axis_count)
-        if self.axis_count not in TUNER_MODELS:
-            raise ValueError(
-                f'unsupported axis count {self.axis_count}; expected one of '
-                f'{sorted(TUNER_MODELS)}')
-        self._check_axes(self.axes, 'axis settings')
-        # A unit mapping can arrive as plain dictionaries (from JSON) or as
-        # TunerUnit objects (from code). Normalise both, then make sure a
-        # stale / unknown active key cannot point outside the mapping.
-        self.units = normalise_units(self.units)
-        if self.active_unit not in self.units:
-            self.active_unit = (DEFAULT_UNIT_KEY if DEFAULT_UNIT_KEY in self.units
-                                else next(iter(self.units)))
-        stored = self.axes_by_unit or {}
-        resolved: dict[str, dict[str, AxisParams]] = {}
-        for key, unit in self.units.items():
-            raw = stored.get(key)
-            if raw:
-                self._check_axes(raw, f'axis settings of {unit.label}')
-                params = dict(raw)
-            else:
-                params = dict(self.axes) if key == self.active_unit else {}
-            for name, default in unit.default_params().items():
-                params.setdefault(name, default)
-            resolved[key] = params
-        self.axes_by_unit = resolved
+            raise ValueError('unknown controller mode')
+        if axis_count is not None and int(axis_count) not in TUNER_MODELS:
+            raise ValueError('unsupported axis count')
+        self.controller_id = controller_id or str(uuid.uuid4())
+        self.layout_id = layout_id or (f'single_{axis_count}' if axis_count else 'dual_3')
+        if not isinstance(layout_confirmed, bool):
+            raise ValueError('layout_confirmed must be a boolean')
+        self.layout_confirmed = layout_confirmed
+        self.configuration_error = configuration_error
+        self.legacy_config = copy.deepcopy(legacy_config)
+        self.extra = copy.deepcopy(extra or {})
+        self.vna_dialect = _clean_dialect(vna_dialect)
+        self.profiles = {}
+        self.active_by_layout = dict(active_by_layout or {})
+        for layout in ('single_3', 'dual_3', 'single_4'):
+            spec = layout_units(layout)
+            stored = (profiles or {}).get(layout, {})
+            resolved = {}
+            for key, unit in spec.items():
+                params = copy.deepcopy(stored.get(key, {}))
+                for name, value in unit.default_params().items():
+                    params.setdefault(name, value)
+                self._check_axes(params, unit.axes)
+                resolved[key] = params
+            self.profiles[layout] = resolved
+            if self.active_by_layout.get(layout) not in spec:
+                self.active_by_layout[layout] = next(iter(spec))
+        spec = layout_units(self.layout_id)
+        chosen = active_unit if active_unit in spec else self.active_by_layout[self.layout_id]
+        self.active_by_layout[self.layout_id] = chosen
+        self._units = spec
+        if units is not None:
+            validate_layout(self.layout_id, normalise_units(units))
+        if axes_by_unit:
+            for key, params in axes_by_unit.items():
+                if key not in spec:
+                    raise ValueError('unknown tuner parameter owner')
+                self.profiles[self.layout_id][key].update(copy.deepcopy(params))
+        if axes:
+            self.profiles[self.layout_id][chosen].update(copy.deepcopy(axes))
+        self.validate()
 
     @staticmethod
-    def _check_axes(axes: dict[str, AxisParams], where: str) -> None:
-        active = tuner_axes(int(DEFAULT_AXIS_COUNT))
-        missing = [name for name in active if name not in axes]
-        if missing:
-            # Only the four-axis superset is mandatory for a stored mapping;
-            # a three-axis tuner legitimately has no Z3 entry of its own, but
-            # the shared settings file always kept all four.
-            if missing != ['Z3']:
-                raise ValueError(f'missing {where}: {missing}')
-        extra = [name for name in axes if name not in CONTROLLER_AXES]
-        if extra:
-            raise ValueError(f'unknown {where}: {extra}')
-        for name, params in axes.items():
-            if params.name != name:
-                raise ValueError(
-                    f'axis key {name!r} does not match parameter name {params.name!r}')
+    def _check_axes(params, required):
+        if any(name not in CONTROLLER_AXES or value.name != name
+               for name, value in params.items()):
+            raise ValueError('unknown or mismatched axis parameter name')
+        if set(params) != set(required):
+            raise ValueError('axis parameters must match the selected tuner exactly')
+
+    def validate(self):
+        validate_layout(self.layout_id, self._units)
+        for key, unit in self.units.items():
+            self._check_axes(self.unit_axes(key), unit.axes)
 
     @property
-    def active_axes(self) -> tuple[str, ...]:
-        """Axis names of the active tuner model."""
-        return tuner_axes(self.axis_count)
+    def units(self):
+        return self._units
 
     @property
-    def probe_count(self) -> int:
-        """Number of probe axes, i.e. the axes besides the shared X axis."""
-        return self.axis_count - 1
+    def active_unit(self):
+        return self.active_by_layout[self.layout_id]
 
-    # -- tuner units ------------------------------------------------------
+    @active_unit.setter
+    def active_unit(self, key):
+        if key not in self.units:
+            raise ValueError('unknown tuner unit')
+        self.active_by_layout[self.layout_id] = key
+
     @property
-    def unit(self) -> TunerUnit:
-        """The :class:`~tuner.tuner_units.TunerUnit` currently selected."""
+    def unit(self):
         return self.units[self.active_unit]
 
-    def unit_axes(self, key: str | None = None) -> dict[str, AxisParams]:
-        """Per-axis parameters of one tuner (the active one by default)."""
-        return self.axes_by_unit[key or self.active_unit]
+    @property
+    def axis_count(self):
+        return self.unit.axis_count
 
-    def set_unit(self, key: str) -> None:
-        """Select a tuner and expose its axis count / parameters on ``self``.
+    @property
+    def active_axes(self):
+        return self.unit.axes
 
-        The current tuner's parameters are parked in :attr:`axes_by_unit`
-        first, so switching back and forth preserves per-tuner tuning.
-        """
-        if key not in self.units:
-            raise ValueError(f'unknown tuner unit {key!r}; '
-                             f'expected one of {sorted(self.units)}')
-        self.axes_by_unit[self.active_unit] = dict(self.axes)
+    @property
+    def probe_count(self):
+        return self.axis_count - 1
+
+    @property
+    def axes_by_unit(self):
+        return self.profiles[self.layout_id]
+
+    @property
+    def axes(self):
+        return self.unit_axes()
+
+    @axes.setter
+    def axes(self, params):
+        self._check_axes(params, self.active_axes)
+        self.profiles[self.layout_id][self.active_unit] = dict(params)
+
+    def unit_axes(self, key=None):
+        return self.profiles[self.layout_id][key or self.active_unit]
+
+    def set_unit(self, key):
         self.active_unit = key
-        unit = self.units[key]
-        self.axis_count = unit.axis_count
-        params = dict(self.axes_by_unit[key])
-        for name, default in unit.default_params().items():
-            params.setdefault(name, default)
-        self.axes_by_unit[key] = params
-        self.axes = dict(params)
 
-    def set_unit_axis_count(self, key: str, count: int) -> None:
-        """Change one tuner's model.
+    def set_layout(self, layout):
+        spec = layout_units(layout)
+        self.layout_id = layout
+        self._units = spec
+        self.layout_confirmed = True
+        self.configuration_error = ''
+        self.validate()
 
-        A four-axis tuner needs one axis more than a three-axis one, so
-        changing the model can push a tuner into the axis block of the other
-        one.  The machine only ever runs one model at a time, so that overlap
-        is not rejected here -- it is reported by
-        :meth:`overlapping_units` and shown to the operator, who confirms the
-        wiring.  The axis count itself is still checked against the
-        controller's capacity.
-        """
-        count = int(count)
-        if count not in TUNER_MODELS:
-            raise ValueError(f'unsupported axis count {count}')
+    def set_unit_axis_count(self, key, count):
         if key not in self.units:
-            raise ValueError(f'unknown tuner unit {key!r}')
-        candidate = dict(self.units)
-        candidate[key] = replace(self.units[key], axis_count=count)
-        self.units = candidate
-        self.axes_by_unit.setdefault(key, {})
-        for name, default in self.units[key].default_params().items():
-            self.axes_by_unit[key].setdefault(name, default)
-        if key == self.active_unit:
-            self.axis_count = count
-            self.axes = dict(self.axes_by_unit[key])
+            raise ValueError('unknown tuner unit')
+        if self.layout_id == 'dual_3':
+            if int(count) != 3:
+                raise ValueError('双台组合仅支持两台三轴 Tuner；请断开后选择单台四轴组合')
+        else:
+            self.set_layout(f'single_{int(count)}')
 
-    def overlapping_units(self) -> dict[str, list[str]]:
-        """Pairs of tuners whose axis blocks intersect.
+    def overlapping_units(self):
+        self.validate()
+        return {}
 
-        Empty for a normal installation.  A non-empty result means the two
-        tuners would command the same controller axis, which the operator has
-        to resolve in the wiring.
-        """
-        clashes: dict[str, list[str]] = {}
-        items = list(self.units.items())
-        for index, (key_a, unit_a) in enumerate(items):
-            for key_b, unit_b in items[index + 1:]:
-                shared = set(unit_a.physical_axes) & set(unit_b.physical_axes)
-                if shared:
-                    clashes.setdefault(key_a, []).append(key_b)
-                    clashes.setdefault(key_b, []).append(key_a)
-        return clashes
-
-    def update_unit(self, unit: TunerUnit) -> None:
-        """Replace one tuner's wiring, rejecting overlapping axis blocks."""
-        if unit.key not in self.units:
-            raise ValueError(f'unknown tuner unit {unit.key!r}')
+    def update_unit(self, unit):
         candidate = dict(self.units)
         candidate[unit.key] = unit
-        validate_units(candidate)
-        self.units = candidate
+        validate_layout(self.layout_id, candidate)
+        self._units = candidate
 
-    def to_dict(self) -> dict[str, Any]:
-        # ``axes`` is the live view of the active tuner; always park it in the
-        # per-tuner map before writing, so a direct field edit (the way the
-        # axis-parameter page works) is persisted too.
-        per_unit = {key: {name: params.to_dict() for name, params in value.items()}
-                    for key, value in self.axes_by_unit.items()}
-        per_unit[self.active_unit] = {
-            name: params.to_dict() for name, params in self.axes.items()}
-        return {
-            'schema_version': SCHEMA_VERSION,
-            'connection': self.connection.to_dict(),
-            'mode': self.mode,
-            'axis_count': self.axis_count,
-            'axes': per_unit[self.active_unit],
-            'active_unit': self.active_unit,
-            'units': {key: unit.to_dict() for key, unit in self.units.items()},
-            'axes_by_unit': per_unit,
-            'vna_dialect': dict(self.vna_dialect),
-        }
+    def to_dict(self):
+        self.validate()
+        result = copy.deepcopy(self.extra)
+        result.update(schema_version=SCHEMA_VERSION, controller_id=self.controller_id,
+                      connection=self.connection.to_dict(), mode=self.mode,
+                      layout_id=self.layout_id, layout_confirmed=self.layout_confirmed,
+                      active_by_layout=dict(self.active_by_layout),
+                      profiles={layout: {unit: {name: value.to_dict() for name, value in axes.items()}
+                                         for unit, axes in tuners.items()}
+                                for layout, tuners in self.profiles.items()},
+                      vna_dialect=dict(self.vna_dialect),
+                      legacy_config=copy.deepcopy(self.legacy_config),
+                      configuration_error=self.configuration_error)
+        return result
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> 'TunerSettings':
-        """Rebuild settings from a stored mapping, raising on anything malformed."""
+    def from_dict(cls, data):
         version = int(data.get('schema_version', 1))
         if version > SCHEMA_VERSION:
-            raise ValueError(
-                f'settings file uses schema version {version}, but this build reads {SCHEMA_VERSION}')
-        connection = ConnectionSettings.from_dict(data.get('connection', {}))
-        mode = str(data.get('mode', 'real')).strip().lower()
-        stored = data.get('axes', {}) or {}
-        # Schema 1 had no axis_count; it always described the four-axis model.
-        axis_count = int(data.get('axis_count', DEFAULT_AXIS_COUNT))
-
+            raise ValueError('settings file uses a newer schema version')
+        common = dict(connection=ConnectionSettings.from_dict(data.get('connection', {})),
+                      mode=data.get('mode', 'real'), vna_dialect=data.get('vna_dialect'),
+                      controller_id=data.get('controller_id'))
+        if version == 6:
+            raw_profiles = data.get('profiles', {})
+            if any(k not in ('single_3', 'dual_3', 'single_4') for k in raw_profiles):
+                raise ValueError('unknown layout profile')
+            for layout, unit in data.get('active_by_layout', {}).items():
+                if unit not in layout_units(layout):
+                    raise ValueError('invalid active tuner for layout')
+            profiles = {}
+            for layout, tuners in raw_profiles.items():
+                if set(tuners) - set(layout_units(layout)):
+                    raise ValueError('unknown tuner in layout')
+                profiles[layout] = {unit: {name: AxisParams.from_dict(value)
+                                          for name, value in axes.items()}
+                                    for unit, axes in tuners.items()}
+            known = {'schema_version', 'controller_id', 'connection', 'mode', 'layout_id',
+                     'layout_confirmed', 'active_by_layout', 'profiles', 'vna_dialect',
+                     'legacy_config', 'configuration_error'}
+            return cls(**common, layout_id=data.get('layout_id', 'dual_3'), profiles=profiles,
+                       active_by_layout=data.get('active_by_layout'),
+                       layout_confirmed=data.get('layout_confirmed', False),
+                       legacy_config=data.get('legacy_config'),
+                       configuration_error=data.get('configuration_error', ''),
+                       extra={k: v for k, v in data.items() if k not in known})
+        count = int(data.get('axis_count', DEFAULT_AXIS_COUNT))
         raw_units = data.get('units')
-        units = (normalise_units(raw_units) if raw_units
-                 else _migrate_default_units(stored))
-        active = str(data.get('active_unit') or DEFAULT_UNIT_KEY)
-        if active not in units:
-            active = DEFAULT_UNIT_KEY if DEFAULT_UNIT_KEY in units else next(iter(units))
-
-        raw_by_unit = data.get('axes_by_unit') or {}
-        per_unit: dict[str, dict[str, AxisParams]] = {}
-        for key, unit in units.items():
-            raw = raw_by_unit.get(key)
-            params: dict[str, AxisParams] = {}
-            if isinstance(raw, Mapping):
-                for name, value in raw.items():
-                    if name in CONTROLLER_AXES:
-                        params[name] = AxisParams.from_dict(value)
-            for name, default in unit.default_params().items():
-                params.setdefault(name, default)
-            per_unit[key] = params
-
-        if version < 4 or not raw_by_unit:
-            # Pre-schema-4 files describe a single tuner. Their top-level
-            # ``axes`` belong to the active (left) tuner and must be preserved
-            # byte-for-byte: on the commissioned machine these are measured
-            # UNITS / limits / origin inputs, not the built-in defaults.
-            params = {}
-            defaults = units[active].default_params()
-            for name in CONTROLLER_AXES:
-                if name in stored:
-                    params[name] = AxisParams.from_dict(stored[name])
-                elif name in defaults:
-                    params[name] = defaults[name]
-            per_unit[active] = params
-
-        return cls(connection=connection, mode=mode, axis_count=axis_count,
-                   axes=dict(per_unit[active]), active_unit=active,
-                   units=units, axes_by_unit=per_unit,
-                   vna_dialect=_clean_dialect(data.get('vna_dialect')))
+        layout = f'single_{count}' if not raw_units or len(raw_units) == 1 else 'dual_3'
+        problem = ''
+        if layout not in ('single_3', 'single_4', 'dual_3'):
+            layout, problem = 'single_3', '旧配置轴数不受支持'
+        if raw_units:
+            try:
+                old = normalise_units(raw_units)
+                validate_units(old)
+                # Old single-tuner identifiers are converted below.
+                if len(old) == 2:
+                    validate_layout(layout, old)
+                elif next(iter(old.values())).axis_map() != next(iter(layout_units(layout).values())).axis_map():
+                    raise ValueError('旧配置物理轴号与组合不一致')
+            except ValueError as exc:
+                problem = str(exc)
+        if raw_units and not problem:
+            old_active = data.get('active_unit', next(iter(old)))
+            if old_active in old and old[old_active].axis_count != count:
+                problem = '旧配置轴数与 Tuner 映射矛盾，请选择实际设备组合'
+        obj = cls(**common, layout_id=layout, layout_confirmed=False,
+                  legacy_config=data, configuration_error=problem)
+        per_unit = data.get('axes_by_unit') or {data.get('active_unit', 'left'): data.get('axes', {})}
+        for key, raw in per_unit.items():
+            target = key if layout == 'dual_3' else 'tuner_1'
+            if target not in obj.units:
+                continue
+            for name, value in raw.items():
+                if name in obj.units[target].axes:
+                    param = AxisParams.from_dict(value)
+                    if 'home_output' not in value:
+                        param.home_output = obj.units[target].default_params()[name].home_output
+                    obj.profiles[layout][target][name] = param
+        if data.get('active_unit') in obj.units:
+            obj.active_unit = data['active_unit']
+        return obj
 
 
 def _clean_dialect(raw: Any) -> dict[str, str]:
@@ -358,29 +315,6 @@ def _clean_dialect(raw: Any) -> dict[str, str]:
     from .vna_drivers import DIALECT_FIELDS  # noqa: PLC0415 - avoid import cycle
     return {str(key): str(value).strip() for key, value in raw.items()
             if key in DIALECT_FIELDS and str(value or '').strip()}
-
-
-def _migrate_default_units(stored_axes: Any) -> dict[str, TunerUnit]:
-    """Factory pair for a settings file that predates the two-tuner schema.
-
-    The left tuner keeps the origin-input channels the operator already used
-    (e.g. ``IN28/29/30`` on this machine); the right tuner is placed on the
-    next three channels. Those are *inferred* defaults -- the operator must
-    confirm them against the real wiring in the tuner selector.
-    """
-    units = default_units()
-    try:
-        datum = stored_axes['X']['datum_in'] if isinstance(stored_axes, Mapping) else None
-    except (KeyError, TypeError):
-        datum = None
-    if isinstance(datum, (int, float)) and not isinstance(datum, bool) and int(datum) >= 0:
-        base = int(datum)
-        left = replace(units['left'], datum_in_base=base)
-        units = {
-            'left': left,
-            'right': replace(units['right'], datum_in_base=base + left.axis_count),
-        }
-    return units
 
 
 class SettingsStore:
@@ -411,10 +345,20 @@ class SettingsStore:
             raise ValueError(f'settings file {self.path} is not valid JSON: {exc}') from exc
         if not isinstance(data, dict):
             raise ValueError(f'settings file {self.path} must contain a JSON object')
-        return TunerSettings.from_dict(data)
+        if int(data.get('schema_version', 1)) < SCHEMA_VERSION:
+            backup = self.path.with_name(self.path.name + '.pre-schema6.bak')
+            if not backup.exists():
+                with backup.open('x', encoding='utf-8') as handle:
+                    handle.write(raw)
+        try:
+            return TunerSettings.from_dict(data)
+        except (TypeError, KeyError, AttributeError) as exc:
+            raise ValueError(f'invalid settings structure: {exc}') from exc
 
     def save(self, settings: TunerSettings) -> Path:
         """Write settings atomically and return the file path."""
+        if settings.configuration_error:
+            raise ValueError('旧配置存在冲突，先选择并确认设备组合；原文件保留')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(settings.to_dict(), indent=2, ensure_ascii=False)
         temp = self.path.with_suffix(self.path.suffix + '.tmp')

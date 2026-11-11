@@ -59,6 +59,10 @@ class ScriptedTransport:
 
     def query(self, cmd: str) -> str:
         self.sent.append(cmd)
+        if cmd == ':SENS1:BAND?':
+            return '1000'
+        if cmd == ':CALC1:EQU:STAT?':
+            return '0'
         if cmd == '*IDN?':
             return self.idn
         if cmd == ':SYST:ERR?':

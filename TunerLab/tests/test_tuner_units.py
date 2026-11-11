@@ -83,14 +83,16 @@ def test_a_pre_schema_4_file_keeps_its_measured_parameters(tmp_path):
         encoding='utf-8')
 
     settings = SettingsStore(path).load()
-    assert settings.active_unit == 'left'
-    left = settings.unit_axes('left')
+    assert settings.active_unit == 'tuner_1'
+    left = settings.unit_axes('tuner_1')
     assert left['X'].units == 10000.0
     assert left['X'].datum_in == 28
     assert left['Z1'].datum_in == 29
     # The origin inputs of the left tuner are inferred, not guessed.
-    assert settings.units['left'].datum_in_base == 28
-    assert settings.units['right'].datum_in_base == 31
+    assert settings.layout_id == 'single_3'
+    assert len(settings.units) == 1
+    assert not settings.layout_confirmed
+    assert store_backup_exists(path)
 
 
 def test_switching_units_keeps_both_parameter_sets(tmp_path):
@@ -117,9 +119,9 @@ def test_the_active_unit_drives_the_visible_axis_count(tmp_path):
 
 def test_a_stale_active_unit_falls_back_to_a_known_one(tmp_path):
     settings = TunerSettings()
-    settings.active_unit = 'does-not-exist'
-    settings.__post_init__()
-    assert settings.active_unit in settings.units
+    with pytest.raises(ValueError):
+        settings.active_unit = 'does-not-exist'
+    assert settings.active_unit == 'left'
 
 
 def test_the_settings_file_records_both_tuners(tmp_path):
@@ -129,9 +131,8 @@ def test_the_settings_file_records_both_tuners(tmp_path):
     raw = store.path.read_text(encoding='utf-8')
     data = json.loads(raw)
     assert data['schema_version'] == SCHEMA_VERSION
-    assert data['active_unit'] == 'left'
-    assert set(data['units']) == {'left', 'right'}
-    assert set(data['axes_by_unit']) == {'left', 'right'}
+    assert data['active_by_layout']['dual_3'] == 'left'
+    assert set(data['profiles']['dual_3']) == {'left', 'right'}
 
 
 # -------------------------------------------------------------- controller
@@ -286,6 +287,10 @@ def test_the_web_api_lists_and_switches_the_tuners(tmp_path):
     listing = handlers.hw_units(state, {})
     assert [unit['key'] for unit in listing['units']] == ['left', 'right']
 
-    result = handlers.hw_set_unit(state, {'unit': 'right'})
+    result = handlers.hw_set_unit(state, {'unit': 'right', 'context': state.hw.context()})
     assert result['active_unit'] == 'right'
     assert state.hw.settings.active_unit == 'right'
+
+
+def store_backup_exists(path):
+    return path.with_name(path.name + '.pre-schema6.bak').exists()

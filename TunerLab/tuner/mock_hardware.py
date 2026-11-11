@@ -104,15 +104,18 @@ class MockZmotionLink:
         The link models the *controller*, so it stays the same object when the
         other tuner takes over.  Only the axis block it answers for changes.
         """
-        self.axes = tuple(axes)
-        self.axis_base = int(axis_base)
-        physical = range(self.axis_base, self.axis_base + len(self.axes))
-        self.status_words = {index: 0 for index in physical}
-        self.stop_reasons = {index: 0 for index in physical}
-        self.homed = {index: False for index in physical}
-        self.speeds = {index: 0.0 for index in physical}
-        self.enabled = {index: 1 for index in physical}
-        self._positions = np.zeros(len(self.axes), dtype=float)
+        fields = ('axes', 'axis_base', 'status_words', 'stop_reasons', 'homed',
+                  'speeds', 'enabled', '_positions')
+        banks = getattr(self, '_banks', {})
+        banks[self.axis_base] = {field: getattr(self, field) for field in fields}
+        if axis_base in banks:
+            for field, value in banks[axis_base].items():
+                setattr(self, field, value)
+        else:
+            fresh = MockZmotionLink(axes, axis_base=axis_base)
+            for field in fields:
+                setattr(self, field, getattr(fresh, field))
+        self._banks = banks
 
     def _logical(self, index: int) -> int:
         return int(index) - self.axis_base
@@ -246,8 +249,11 @@ class MockZmotionController:
         return self.axis_base + logical
 
     def output(self, axis: str | int) -> int:
-        logical = self.axes.index(axis) if isinstance(axis, str) else int(axis)
-        return self.op_base + logical
+        name = axis if isinstance(axis, str) else self.axes[int(axis)]
+        configured = getattr(self.axis_params.get(name), 'home_output', -1)
+        if configured >= 0:
+            return configured
+        raise MotionError(f'{name} 回零输出未配置，请先核对接线并保存参数')
 
     def axis_map(self) -> dict[str, int]:
         return {name: self.physical_axis(name) for name in self.axes}
@@ -279,6 +285,9 @@ class MockZmotionController:
 
     def _require_ready(self, require_home: bool = True,
                        axes: Sequence[str] | None = None) -> None:
+        check = getattr(self, 'installation_check', None)
+        if check:
+            check(axes)
         if not self.initialized:
             raise MotionError('initialize the controller before motion')
         if self.stopped:
@@ -316,7 +325,7 @@ class MockZmotionController:
 
     # -- axis parameters -------------------------------------------------
     def apply_axis_parameters(self, axis_params: dict[str, AxisParams]) -> None:
-        self.axis_params = dict(axis_params)
+        self.axis_params.update(axis_params)
 
     def read_axis_parameters(self) -> dict[str, dict[str, float]]:
         result: dict[str, dict[str, float]] = {}
@@ -326,6 +335,7 @@ class MockZmotionController:
                 'feedback_scale': float(params.feedback_scale) if params else 1.0,
                 'atype': float(params.atype) if params else 4.0,
                 'units': float(params.units) if params else 10000.0,
+                'home_wait': float(params.home_wait) if params else 2.0,
                 'speed': float(params.speed) if params else 10.0,
                 'accel': float(params.accel) if params else 10.0,
                 'decel': float(params.decel) if params else 10.0,

@@ -687,6 +687,14 @@ class StudioSetupPage(_StudioPage):
             result = handlers.studio_setup(self.state, plan_body)
             return result
 
+        if body.get('motion_source') == 'real':
+            try:
+                work = self.state.hw.reserve_task(work, motion=True, expected=self.state.hw.context())
+            except Exception as exc:
+                self.start_button.setEnabled(True)
+                self.start_button.setText('建立校准库')
+                self.fail(exc, '建立校准库失败')
+                return
         self.run(work, self._created, title='建立校准库失败', description='studio setup')
 
     def _init_body(self) -> dict:

@@ -71,6 +71,11 @@ class AppState:
             'point_plan': 'cartesian',
         }
 
+        self.hw._external_busy = lambda: bool(
+            self.studio.get('motion_source') == 'real' and
+            self.studio.get('calibration_thread') and
+            self.studio['calibration_thread'].is_alive())
+
         # --- VNA (real vector network analyzer, TCP/IP or VISA GPIB) ------
         # Separate instrument from the Zmotion motion controller: a VNA is a
         # different box on the LAN / GPIB bus and is driven by
@@ -121,6 +126,8 @@ class AppState:
                 'address': link.ip if link else None,
                 'library': self._library_path(),
                 'settings_path': str(self.hw.store.path),
+                'context': self.hw.context(),
+                'layout_id': self.hw.settings.layout_id,
                 'axis_count': (self.hw.settings.axis_count
                                if self.hw.settings else 0),
                 'mode': (self.hw.settings.mode if self.hw.settings else 'real'),
@@ -184,10 +191,12 @@ class AppState:
             controller = v['controller']
             live_cfg = controller.get_config() if controller is not None else None
             return {
-                'connected': v['connected'],
+                'connected': bool(v['connected'] and controller is not None
+                                  and controller.connected),
                 'idn': v['idn'],
                 'vendor': v['vendor'],
-                'last_error': v['last_error'],
+                'last_error': (getattr(controller, 'last_error', None)
+                               or v['last_error']),
                 'config': cfg,
                 'live_config': live_cfg,
             }

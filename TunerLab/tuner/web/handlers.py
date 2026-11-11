@@ -227,6 +227,10 @@ def hw_settings(state, body):
         'connect_on_start': conn.connect_on_start,
         'path': str(state.hw.store.path),
         'mode': settings.mode,
+        'layout_id': settings.layout_id,
+        'layout_confirmed': settings.layout_confirmed,
+        'configuration_error': settings.configuration_error,
+        'context': state.hw.context(),
         'axis_count': settings.axis_count,
         'axes': list(settings.active_axes),
         'models': {str(count): list(names)
@@ -370,45 +374,66 @@ def hw_generate_virtual_data(state, body):
 
 
 def hw_params(state, body):
-    """Stored per-axis parameters from the settings file."""
-    return {name: state.hw.settings.axes[name].to_dict()
-            for name in state.hw.axes}
+    with state.hw._installation_lock:
+        return {'axes': {name: state.hw.settings.axes[name].to_dict() for name in state.hw.axes},
+                'context': state.hw.context(), 'states': state.hw.parameter_states()}
 
 
 def hw_params_read(state, body):
-    """Live parameters read from the controller."""
+    state.hw.check_context(body.get('context'))
     with state.hw_lock:
         live = state.hw.read_parameters_from_controller()
-    return {name: live[name] for name in state.hw.axes}
+        return {'axes': live, 'states': state.hw.parameter_states(), 'context': state.hw.context()}
 
 
-def _build_axis_params(axes_body: dict) -> dict:
+def _build_axis_params(state, axes_body):
+    if not isinstance(axes_body, dict) or set(axes_body) - set(state.hw.axes):
+        raise ValueError('未配置轴或非法参数集合')
     result = {}
-    for name in state.hw.axes:
-        raw = axes_body.get(name)
-        if raw is None:
-            continue
-        cleaned = {k: float(v) for k, v in raw.items() if k != 'name'}
-        cleaned['name'] = name
-        result[name] = AxisParams(**cleaned)
+    for name, raw in axes_body.items():
+        values = state.hw.settings.axes[name].to_dict()
+        for key, value in raw.items():
+            if key not in values or (key == 'name' and value != name):
+                raise ValueError('未知参数字段或轴名不一致')
+            if key != 'name':
+                if isinstance(values[key], int):
+                    number = float(value)
+                    if not number.is_integer():
+                        raise ValueError(f'{key} 必须为整数')
+                    values[key] = int(number)
+                else:
+                    values[key] = float(value)
+        result[name] = AxisParams(**values)
     return result
 
 
-def hw_params_write(state, body):
-    """Validate, write to the controller and persist to the settings file."""
-    axes = _build_axis_params(body.get('axes', {}))
+def hw_params_save(state, body):
+    axes = _build_axis_params(state, body.get('axes', {}))
     if not axes:
         raise ValueError('no axis parameters supplied')
-    with state.hw_lock:
-        state.hw.set_axis_parameters(axes)
-        state.hw.apply_parameters_to_controller()
-    return {name: axes[name].to_dict() for name in axes}
+    state.hw.set_axis_parameters(axes)
+    return hw_params(state, {})
+
+
+def hw_params_write(state, body):
+    axes = _build_axis_params(state, body.get('axes', {}))
+    if any(value != state.hw.settings.axes[name] for name, value in axes.items()):
+        raise ValueError('请先保存配置，再写入控制器')
+    names = list(axes) if axes else list(body.get('targets') or state.hw.axes)
+    results = state.hw.apply_parameters_to_controller(names)
+    return {'results': results, 'context': state.hw.context()}
+
+
+def hw_set_layout(state, body):
+    state.hw.set_layout(str(body['layout_id']), expected=body.get('context'))
+    return hw_settings(state, body)
 
 
 def hw_params_load(state, body):
     """Reload the saved parameters from disk."""
     settings = state.hw.store.load()
-    return {name: settings.axes[name].to_dict() for name in state.hw.axes}
+    params = settings.profiles[state.hw.settings.layout_id][state.hw.settings.active_unit]
+    return {name: params[name].to_dict() for name in state.hw.axes}
 
 
 def _require_controller(state):
@@ -472,8 +497,8 @@ def hw_stop(state, body):
     # Stop must never wait for a blocking move to finish: it uses the dedicated
     # emergency lock, not ``hw_lock`` (P0-01).
     with state.hw_emergency_lock:
-        controller = _require_controller(state)
-        controller.stop_all()
+        controller = state.hw.require_controller()
+        state.hw.stop_configured_axes()
         snapshot = controller.axis_status_snapshot()
     operation_log.warn('运动', '停止', '已向全部轴发送停止指令')
     return {'snapshot': snapshot}
@@ -517,16 +542,16 @@ def hw_estop(state, body):
     # Emergency stop uses the dedicated lock so it always preempts a blocking
     # move (P0-01).
     with state.hw_emergency_lock:
-        controller = _require_controller(state)
-        controller.emergency_stop()
+        controller = state.hw.require_controller()
+        state.hw.emergency_stop_all()
     operation_log.error('急停', '触发急停', '软件急停已锁存，需复位后重新回零')
     return state.hw_status()
 
 
 def hw_reset_estop(state, body):
     with state.hw_emergency_lock:
-        controller = _require_controller(state)
-        controller.reset_emergency()
+        controller = state.hw.require_controller()
+        state.hw.reset_emergency_all()
     operation_log.warn('急停', '复位急停', '急停已复位，请重新回零后再运动')
     return state.hw_status()
 
@@ -780,14 +805,21 @@ def studio_init_hardware(state, body):
         points = int(body.get('vna_points', 401))
         vna = create_vna(vendor, host, port, timeout,
                          interface=interface, resource=resource)
-        vna.connect()
-        # P0 F-05: an explicit P0 frequency mode uses the validated plan.
-        # Without one, the legacy single set_sweep call stays untouched.
-        if frequency_mode and frequency_mode != 'freq_sweep':
-            frequency_plan = _frequency_plan_from_body(body)
-            apply_frequency_plan(vna, frequency_plan)
-        else:
-            vna.set_sweep(start, stop, points)
+        try:
+            vna.connect()
+            # P0 F-05: an explicit P0 frequency mode uses the validated plan.
+            # Without one, the legacy single set_sweep call stays untouched.
+            if frequency_mode and frequency_mode != 'freq_sweep':
+                frequency_plan = _frequency_plan_from_body(body)
+                apply_frequency_plan(vna, frequency_plan)
+            else:
+                vna.set_sweep(start, stop, points)
+        except Exception:
+            try:
+                vna.close()
+            except Exception:
+                pass
+            raise
         vna_source_used = 'real'
     else:
         vna = MockVNAController(config, motion, DEFAULT_FREQUENCIES)
@@ -817,6 +849,7 @@ def studio_init_hardware(state, body):
         state.studio['vna'] = vna
         state.studio['vna_source'] = vna_source_used
         state.studio['motion_source'] = motion_source
+        state.studio['hardware_context'] = state.hw.context() if motion_source == 'real' else None
         state.studio['homed_axes'] = homed_axes
         state.studio['manager'] = None
         state.studio['database'] = None
@@ -841,6 +874,9 @@ def _require_studio_hardware(state):
     with state.studio_lock:
         if state.studio['motion'] is None:
             raise RuntimeError('initialize virtual hardware first')
+        expected = state.studio.get('hardware_context')
+        if state.studio.get('motion_source') == 'real' and expected is not None:
+            state.hw.check_context(expected)
         return state.studio
 
 
@@ -1110,6 +1146,13 @@ def studio_setup(state, body):
             'cal_id': cal_id}
 
 
+def _bound_studio_worker(state, work):
+    if state.studio.get('motion_source') == 'real':
+        return state.hw.reserve_task(work, motion=True,
+                                     expected=state.studio.get('hardware_context'))
+    return work
+
+
 def studio_run(state, body):
     s = _require_studio_hardware(state)
     manager = s['manager']
@@ -1137,7 +1180,7 @@ def studio_run(state, body):
                 state.studio['calibration_state'] = 'failed'
                 state.studio['calibration_error'] = f'{type(exc).__name__}: {exc}'
 
-    thread = threading.Thread(target=run_calibration, daemon=True)
+    thread = threading.Thread(target=_bound_studio_worker(state, run_calibration), daemon=True)
     with state.studio_lock:
         if s['calibration_thread'] is not None and s['calibration_thread'].is_alive():
             raise RuntimeError('calibration already running; pause or cancel first')
@@ -1637,7 +1680,7 @@ def studio_validate(state, body):
                 state.studio['calibration_state'] = 'failed'
                 state.studio['calibration_error'] = f'{type(exc).__name__}: {exc}'
 
-    thread = threading.Thread(target=run_validation, daemon=True)
+    thread = threading.Thread(target=_bound_studio_worker(state, run_validation), daemon=True)
     with state.studio_lock:
         if s['calibration_thread'] is not None and s['calibration_thread'].is_alive():
             raise RuntimeError('an operation is already running')
@@ -1715,7 +1758,7 @@ def studio_validate_interpolation(state, body):
                 state.studio['calibration_error'] = f'{type(exc).__name__}: {exc}'
             operation_log.exception('校准', '插值验证', exc)
 
-    thread = threading.Thread(target=run_validation, daemon=True)
+    thread = threading.Thread(target=_bound_studio_worker(state, run_validation), daemon=True)
     with state.studio_lock:
         if s['calibration_thread'] is not None and s['calibration_thread'].is_alive():
             raise RuntimeError('an operation is already running')
@@ -1852,7 +1895,9 @@ def vna_connect(state, body):
         cfg['points'] = int(body.get('points') or cfg['points'])
         if cfg['points'] == 1:
             cfg['stop_hz'] = cfg['start_hz']
-        cfg['power_dbm'] = float(body.get('power_dbm') or cfg['power_dbm'])
+        cfg['power_dbm'] = float(
+            cfg['power_dbm'] if body.get('power_dbm') is None
+            else body['power_dbm'])
         cfg['ifbw_hz'] = float(body.get('ifbw_hz') or cfg['ifbw_hz'])
         controller = create_vna(cfg['vendor_key'], cfg['host'], cfg['port'],
                                 cfg['timeout_ms'] / 1000.0,
@@ -1861,6 +1906,10 @@ def vna_connect(state, body):
                                 dialect=cfg.get('dialect') or None)
         try:
             idn = controller.connect()
+            # Publish the session only after all requested configuration succeeds.
+            controller.set_sweep(cfg['start_hz'], cfg['stop_hz'], cfg['points'])
+            controller.set_power(cfg['power_dbm'])
+            controller.set_ifbw(cfg['ifbw_hz'])
         except Exception as exc:  # noqa: BLE001 - surface VISA/driver errors
             state.vna['last_error'] = str(exc)
             try:
@@ -1868,10 +1917,13 @@ def vna_connect(state, body):
             except Exception:  # noqa: BLE001
                 pass
             raise
-        # apply the sweep / power / ifbw requested by the panel
-        controller.set_sweep(cfg['start_hz'], cfg['stop_hz'], cfg['points'])
-        controller.set_power(cfg['power_dbm'])
-        controller.set_ifbw(cfg['ifbw_hz'])
+        live = controller.get_config()
+        if isinstance(live, dict):
+            cfg['ifbw_hz'] = live.get('ifbw_hz', cfg['ifbw_hz'])
+        effective = getattr(controller, 'dialect', None)
+        if isinstance(effective, dict) and effective != (cfg.get('dialect') or {}):
+            cfg['dialect'] = dict(effective)
+            _persist_vna_dialect(state, effective)
         state.vna['controller'] = controller
         state.vna['connected'] = True
         state.vna['idn'] = idn
@@ -1942,7 +1994,8 @@ def vna_set_ifbw(state, body):
     hz = float(body['ifbw_hz'])
     controller.set_ifbw(hz)
     with state.vna_lock:
-        state.vna['config']['ifbw_hz'] = hz
+        live = controller.get_config()
+        state.vna['config']['ifbw_hz'] = live.get('ifbw_hz', hz) if isinstance(live, dict) else hz
     return state.vna_status()
 
 
@@ -2343,7 +2396,7 @@ def studio_repeatability_auto(state, body):
                 state.studio['calibration_state'] = 'failed'
                 state.studio['calibration_error'] = f'{type(exc).__name__}: {exc}'
 
-    thread = threading.Thread(target=run_repeatability, daemon=True)
+    thread = threading.Thread(target=_bound_studio_worker(state, run_repeatability), daemon=True)
     with state.studio_lock:
         if s['calibration_thread'] is not None and s['calibration_thread'].is_alive():
             raise RuntimeError('an operation is already running')
@@ -2579,7 +2632,31 @@ def studio_deviation(state, body):
 # =====================================================================
 # Route table
 # =====================================================================
+def _installation_request(function, motion=False):
+    from functools import wraps
+    @wraps(function)
+    def bound(state, body):
+        expected = body.get('context')
+        if expected is None:
+            raise ValueError('缺少目标配置版本，请刷新界面后重试')
+        work = state.hw.reserve_task(lambda: function(state, body),
+                                     motion=motion, expected=expected,
+                                     axes=[str(body['axis'])] if 'axis' in body else None)
+        return work()
+    return bound
+
+
+for _name in ('hw_set_layout', 'hw_set_model', 'hw_set_unit', 'hw_params_save',
+              'hw_params_write', 'hw_params_read', 'hw_set_mode', 'hw_settings_save',
+              'hw_connect', 'hw_disconnect'):
+    globals()[_name] = _installation_request(globals()[_name])
+for _name in ('hw_move', 'hw_jog', 'hw_home', 'hw_probe', 'hw_apply_scale'):
+    globals()[_name] = _installation_request(globals()[_name], motion=True)
+
+
 ROUTES = {
+    'POST /api/hardware/layout': hw_set_layout,
+    'POST /api/hardware/params/save': hw_params_save,
     # hardware
     'GET /api/hardware/status': hw_status,
     'POST /api/hardware/connect': hw_connect,
@@ -2684,3 +2761,33 @@ ROUTES = {
     'GET /api/studio/progress_cloud': studio_progress_cloud,
     'GET /api/studio/live_smith': studio_live_smith,
 }
+
+
+# Real-motion HTTP operations carry the same context and lease as the desktop.
+# Stop/cancel paths intentionally remain available without the normal task lock.
+def _studio_installation_route(function, *, launch=False, initialize=False):
+    def route(state, body):
+        source = body.get('motion_source') if initialize else state.studio.get('motion_source')
+        if source != 'real':
+            return function(state, body)
+        expected = body.get('context')
+        if expected is None:
+            raise ValueError('缺少目标配置版本，请刷新界面后重试')
+        if launch:
+            # The worker reserves its lease before Thread.start(). Hold the
+            # configuration lock until that reservation has been established.
+            with state.hw._installation_lock:
+                state.hw.check_context(expected)
+                return function(state, body)
+        return state.hw.reserve_task(lambda: function(state, body), motion=True,
+                                     expected=expected)()
+    return route
+
+
+for _path in ('init_hardware', 'home', 'jog', 'retract', 'move_candidate', 'move_tuned',
+              'move_to_gamma', 'verify', 'repeatability', 'setup'):
+    _key = 'POST /api/studio/' + _path
+    ROUTES[_key] = _studio_installation_route(ROUTES[_key], initialize=_path == 'init_hardware')
+for _path in ('run', 'validate', 'validate_interpolation', 'repeatability_auto'):
+    _key = 'POST /api/studio/' + _path
+    ROUTES[_key] = _studio_installation_route(ROUTES[_key], launch=True)

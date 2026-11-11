@@ -86,6 +86,12 @@ class FakeSession:
         self.controller = controller
         self.connected = controller is not None
 
+    def context(self):
+        return {'test': 'real-motion'}
+
+    def check_context(self, expected=None):
+        assert expected is None or expected == self.context()
+
     @property
     def axes(self):
         return tuner_axes(self.settings.axis_count)
@@ -184,6 +190,7 @@ def test_scale_probe_reports_a_consistent_axis_as_consistent():
 def test_applying_the_scale_correction_rewrites_units_and_requires_a_rehome(tmp_path):
     controller = make_real_controller(feedback_gain=84.0)
     session = HardwareSession(store=SettingsStore(tmp_path / 'settings.json'))
+    session.set_layout('single_4')
     session.link = controller.link
     session.controller = controller
     session.settings.axes = {
@@ -210,6 +217,7 @@ def test_applying_the_scale_correction_rewrites_units_and_requires_a_rehome(tmp_
 def test_scale_correction_rejects_an_unknown_axis(tmp_path):
     controller = make_real_controller(feedback_gain=84.0)
     session = HardwareSession(store=SettingsStore(tmp_path / 'settings.json'))
+    session.set_layout('single_4')
     session.link = controller.link
     session.controller = controller
     with pytest.raises(ValueError):

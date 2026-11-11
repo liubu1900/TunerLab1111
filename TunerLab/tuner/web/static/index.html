@@ -68,16 +68,18 @@
           <p class="hint">一台控制器可同时驱动两台 Tuner。切换当前 Tuner 后，所有运动、标定、
             回零操作都只作用于所选的那台，物理轴号保持各自的接线不变。</p>
           <div class="form-row">
-            <label>tuner 型号</label>
+            <label>设备组合</label>
             <select id="hw-model">
-              <option value="3">3 轴 tuner (X, Z1, Z2)</option>
-              <option value="4">4 轴 tuner (X, Z1, Z2, Z3)</option>
+              <option value="single_3">单台三轴 Tuner</option>
+              <option value="dual_3">双台三轴 Tuner</option>
+              <option value="single_4">单台四轴 Tuner</option>
             </select>
           </div>
           <p class="hint">选择本机 tuner 型号：3 轴为 2 个探针（X/Z1/Z2），4 轴为 3 个探针
             （X/Z1/Z2/Z3）。切换后所有页面只显示该型号的轴，控制器物理轴序号不变，
-            已保存的校准数据依然可用。</p>
+            各组合参数分别保存，校准结果需重新核实。</p>
           <div class="btn-row">
+            <button id="hw-confirm-layout" class="btn">确认设备组合与接线</button>
             <button id="hw-connect" class="btn primary">连接</button>
             <button id="hw-disconnect" class="btn">断开</button>
             <button id="hw-search" class="btn">广播搜索</button>

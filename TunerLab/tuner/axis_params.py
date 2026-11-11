@@ -22,7 +22,7 @@ from typing import Any
 #: longer maps to the same physical point. See :func:`affects_coordinate_frame`.
 COORDINATE_FIELDS = (
     'units', 'invert_step', 'datum_in', 'datum_mode',
-    'fs_limit', 'rs_limit', 'feedback_scale',
+    'fs_limit', 'rs_limit', 'feedback_scale', 'home_output', 'datum_active', 'home_output_active', 'home_pulse',
 )
 
 #: Plausibility ceilings. The defaults are pulses-per-mm in the thousands and
@@ -139,6 +139,10 @@ class AxisParams:
     #: Input channel that carries the origin sensor. ``-1`` disables it.
     datum_in: int = 16
     #: Reverse-search dwell time after the origin signal, in milliseconds.
+    home_pulse: float = 0.3
+    home_output_active: int = 1
+    datum_active: int = 1
+    home_output: int = -1
     home_wait: int = 2
     #: Positive software limit in user units.
     fs_limit: float = 200000000.0
@@ -185,6 +189,12 @@ class AxisParams:
                     f'{label}={value!r} is outside the plausible range [{lo}, {hi}]')
         if self.fs_limit <= self.rs_limit:
             raise ValueError('positive limit must be greater than the negative limit')
+        if not math.isfinite(float(self.home_pulse)) or not 0.001 <= self.home_pulse <= 10:
+            raise ValueError('home_pulse must be 0.001..10 seconds')
+        if self.home_output_active not in (0, 1) or self.datum_active not in (0, 1):
+            raise ValueError('home_output_active and datum_active must be 0 or 1')
+        if not isinstance(self.home_output, int) or not -1 <= self.home_output < 12:
+            raise ValueError('home_output must be -1 or an output 0..11')
         if self.datum_in < -1:
             raise ValueError('datum_in must be -1 (disabled) or a valid input channel')
         if self.datum_mode < 0:
@@ -229,9 +239,9 @@ def default_axis_params(axis_count: int = DEFAULT_AXIS_COUNT) -> dict[str, AxisP
     ``axis_count`` selects the model: 3 axes give X/Z1/Z2, 4 axes give X/Z1/Z2/Z3.
     """
     defaults = {
-        'X': AxisParams(name='X', units=2500.0, datum_in=16),
-        'Z1': AxisParams(name='Z1', units=10000.0, datum_in=17),
-        'Z2': AxisParams(name='Z2', units=10000.0, datum_in=18),
-        'Z3': AxisParams(name='Z3', units=10000.0, datum_in=19),
+        'X': AxisParams(name='X', units=2500.0, datum_in=16, home_output=0),
+        'Z1': AxisParams(name='Z1', units=10000.0, datum_in=17, home_output=1),
+        'Z2': AxisParams(name='Z2', units=10000.0, datum_in=18, home_output=2),
+        'Z3': AxisParams(name='Z3', units=10000.0, datum_in=19, home_output=3),
     }
     return {name: defaults[name] for name in tuner_axes(axis_count)}

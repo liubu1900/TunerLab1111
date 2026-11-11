@@ -115,6 +115,9 @@ class SharedState(AppState):
     def __init__(self, hw: HardwareSession):
         super().__init__()
         self.hw = hw
+        self.hw._external_busy = lambda: bool(self.studio.get('motion_source') == 'real' and
+            self.studio.get('calibration_thread') and
+            self.studio['calibration_thread'].is_alive())
         #: The single active calibration library and its change broadcast.
         #: Pages subscribe through :class:`_StudioPage`; the badge and the
         #: Calibration Browser subscribe through :meth:`MainWindow._wire`.

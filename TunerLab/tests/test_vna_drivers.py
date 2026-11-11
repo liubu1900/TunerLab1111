@@ -50,6 +50,10 @@ class FakeSocket:
                 vals.append(f'{0.02 * i:.6f}')
             return (','.join(vals) + '\n').encode('ascii')
         if cmd.endswith('?'):
+            if cmd == ':SENS1:BAND?':
+                return b'1000\n'
+            if cmd == ':CALC1:EQU:STAT?':
+                return b'0\n'
             if cmd == '*IDN?':
                 return (self.idn + '\n').encode('ascii')
             if cmd == ':SYST:ERR?':

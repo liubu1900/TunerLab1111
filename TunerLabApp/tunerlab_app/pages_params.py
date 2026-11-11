@@ -46,20 +46,15 @@ class SafeAxisParameterPage(AxisParameterPage):
         self.toolbar_status = QLabel('')
         self.toolbar_status.setObjectName('PageHint')
         self.toolbar_status.setFont(px_font(11.5, 'light'))
-        layout = self.layout()
-        if layout is not None and layout.count():
-            first = layout.itemAt(0)
-            row = first.layout() if first is not None else None
-            if row is not None:
-                row.addStretch()
-                row.addWidget(self.toolbar_status)
+        self.layout().insertWidget(1, self.toolbar_status)
         self._refresh_toolbar_status()
 
     def _refresh_toolbar_status(self) -> None:
         if not hasattr(self, 'toolbar_status'):
             return
         self.toolbar_status.setText(
-            f'{len(self.session.axes)} 轴 · {self.table.columnCount() - 1} 项 · 未修改')
+            f'{len(self.session.axes)} 轴 · {self.table.columnCount() - 1} 项 · '
+            + ('未保存修改' if self.dirty else '已保存配置'))
 
     def _add_info_cards(self) -> None:
         """The three reference cards under the table, as in the mock-up."""
@@ -67,8 +62,8 @@ class SafeAxisParameterPage(AxisParameterPage):
         row.setSpacing(14)
         notes = (
             ('坐标基准', 'UNITS 为脉冲/mm；MPOS 单位为 10 µm，DPOS 为 mm。'),
-            ('回零策略', 'Z 轴 DATUM_MODE=4（反向找原点开关），X 轴=1。'),
-            ('保护', '控制器 FS/RS_LIMIT 仍为出厂 ±2e8，软件按申报行程拦截。'),
+            ('回零策略', '按每轴设置的模式、原点输入和回零输出执行；请核对实际接线。'),
+            ('保护', '软限位按每轴保存并读回核对；写入不一致时停止该轴操作。'),
         )
         for title, text in notes:
             card = Card(title)
@@ -128,7 +123,66 @@ class SafeAxisParameterPage(AxisParameterPage):
     def fill_table(self, axis_params) -> None:  # noqa: D102 - base override
         super().fill_table(axis_params)
         self._sync_kpis()
+        self._refresh_toolbar_status()
 
     def rebuild_rows(self) -> None:
         super().rebuild_rows()
         self._sync_kpis()
+
+    def update_status(self):
+        super().update_status()
+        self._refresh_toolbar_status()
+
+    def _submit_io(self, write=False, selected=False):
+        from .bg import run_in_background
+        if getattr(self, '_io_busy', False):
+            return
+        try:
+            self.session.check_context(self._owner)
+            if write and self.dirty:
+                raise ValueError('请先保存配置，再明确写入控制器')
+            names = list(self.session.axes)
+            if selected:
+                row = self.table.currentRow()
+                if row < 0:
+                    raise ValueError('请先选中一根轴')
+                names = [names[row]]
+            work = (lambda: self.session.apply_parameters_to_controller(names)) if write else self.session.read_parameters_from_controller
+            snapshot = dict(self._owner)
+            work = self.session.reserve_task(work, expected=snapshot)
+        except Exception as exc:
+            self.report_error(exc)
+            return
+        self._io_busy = True
+        for button in (self.read_button, self.write_button, self.write_axis_button, self.save_button):
+            button.setEnabled(False)
+        def restore():
+            self._io_busy = False
+            for button in (self.read_button, self.write_button, self.write_axis_button, self.save_button):
+                button.setEnabled(True)
+        def done(result):
+            restore()
+            try:
+                self.session.check_context(snapshot)
+            except Exception:
+                self.update_status()
+                self.log('旧目标的读写结果已丢弃，请读取当前 Tuner 参数')
+                return
+            if not write:
+                self._live = result
+            self.update_status()
+            if write and any(value['status'] != 'matched' for value in result.values()):
+                self.report_error(ValueError('部分轴写入或校验失败，详情见逐轴状态'))
+        def failed(exc):
+            restore()
+            self.report_error(exc)
+        run_in_background(work, on_done=done, on_error=failed, description='axis parameters')
+
+    def on_read(self):
+        self._submit_io()
+
+    def on_write(self):
+        self._submit_io(write=True)
+
+    def on_write_axis(self):
+        self._submit_io(write=True, selected=True)

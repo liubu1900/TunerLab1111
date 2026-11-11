@@ -66,11 +66,13 @@ def test_default_parameters_follow_the_model():
 
 
 # --------------------------------------------------------------- settings
-def test_settings_default_to_the_four_axis_model():
+def test_settings_default_to_unconfirmed_dual_three_axis_layout():
     settings = TunerSettings()
-    assert settings.axis_count == DEFAULT_AXIS_COUNT
-    assert settings.active_axes == ('X', 'Z1', 'Z2', 'Z3')
-    assert settings.probe_count == 3
+    assert settings.axis_count == 3
+    assert settings.active_axes == ('X', 'Z1', 'Z2')
+    assert settings.probe_count == 2
+    assert settings.layout_id == 'dual_3'
+    assert not settings.layout_confirmed
 
 
 def test_settings_round_trip_keeps_the_model(tmp_path):
@@ -93,10 +95,11 @@ def test_switching_the_model_keeps_the_tuned_axes(tmp_path):
     store.save(settings)
 
     loaded = store.load()
-    loaded.axis_count = 3
-    # Z3 is not part of the model any more, but its parameters survive.
-    assert loaded.axes['Z3'].units == pytest.approx(123.0)
+    loaded.set_layout('single_3')
+    assert 'Z3' not in loaded.axes
     assert loaded.active_axes == ('X', 'Z1', 'Z2')
+    loaded.set_layout('single_4')
+    assert loaded.axes['Z3'].units == pytest.approx(123.0)
 
 
 def test_an_old_settings_file_still_loads(tmp_path):
@@ -123,7 +126,8 @@ def test_the_settings_file_records_the_model(tmp_path):
     store.save(TunerSettings(axis_count=3))
     data = json.loads(store.path.read_text(encoding='utf-8'))
     assert data['schema_version'] == SCHEMA_VERSION
-    assert data['axis_count'] == 3
+    assert data['layout_id'] == 'single_3'
+    assert 'axis_count' not in data
 
 
 def test_the_pinned_vna_dialect_survives_a_restart(tmp_path):
@@ -320,6 +324,7 @@ def test_the_desktop_pages_follow_the_tuner_model(qapp, no_modal_dialogs):
 
     store = SettingsStore(tmp_path_for_ui() / 'settings.json')
     session = HardwareSession(store)
+    session.set_layout('single_4')
     communication = CommunicationPage(session)
     motion = AxisMotionPage(session)
     parameters = AxisParameterPage(session)
@@ -327,7 +332,7 @@ def test_the_desktop_pages_follow_the_tuner_model(qapp, no_modal_dialogs):
     assert len(motion.axis_panels) == 4
     assert parameters.table.rowCount() == 4
 
-    index = communication.model_combo.findData(3)
+    index = communication.model_combo.findData('single_3')
     assert index >= 0
     communication.model_combo.setCurrentIndex(index)
     qapp.processEvents()
@@ -337,7 +342,7 @@ def test_the_desktop_pages_follow_the_tuner_model(qapp, no_modal_dialogs):
     assert len(motion.axis_panels) == 3
     assert parameters.table.rowCount() == 3
 
-    index = communication.model_combo.findData(4)
+    index = communication.model_combo.findData('single_4')
     communication.model_combo.setCurrentIndex(index)
     qapp.processEvents()
 
@@ -354,17 +359,17 @@ def tmp_path_for_ui():
 def test_the_web_api_switches_the_model(web_state):
     from tuner.web import handlers
 
-    handlers.hw_set_model(web_state, {'axis_count': 3})
+    handlers.hw_set_layout(web_state, {'layout_id': 'single_3', 'context': web_state.hw.context()})
     settings = handlers.hw_settings(web_state, {})
     assert settings['axis_count'] == 3
     assert settings['axes'] == ['X', 'Z1', 'Z2']
 
     params = handlers.hw_params(web_state, {})
-    assert sorted(params) == ['X', 'Z1', 'Z2']
+    assert sorted(params['axes']) == ['X', 'Z1', 'Z2']
 
-    handlers.hw_set_model(web_state, {'axis_count': 4})
+    handlers.hw_set_layout(web_state, {'layout_id': 'single_4', 'context': web_state.hw.context()})
     params = handlers.hw_params(web_state, {})
-    assert sorted(params) == ['X', 'Z1', 'Z2', 'Z3']
+    assert sorted(params['axes']) == ['X', 'Z1', 'Z2', 'Z3']
 
 
 def test_the_web_api_rejects_an_unknown_model(web_state):
@@ -377,7 +382,7 @@ def test_the_web_api_rejects_an_unknown_model(web_state):
 def test_the_web_status_reports_the_model(web_state):
     from tuner.web import handlers
 
-    handlers.hw_set_model(web_state, {'axis_count': 3})
+    handlers.hw_set_layout(web_state, {'layout_id': 'single_3', 'context': web_state.hw.context()})
     status = web_state.hw_status()
     assert status['axis_count'] == 3
     assert status['active_axes'] == ['X', 'Z1', 'Z2']

@@ -231,7 +231,7 @@ def test_keysight_pna_profile_matches_the_verified_probe():
     assert profile['fetch_mnemonic'] == 'SDATA'            # CALC1:DATA? SDATA
     assert profile['power_cmd'] == ':SOUR1:POW:LEV'        # LEV form got +0
     assert profile['ifbw_cmd'] == ':SENS1:BAND'
-    assert profile['trigger_cmd'] == ':INIT1:IMM'          # INIT:IMM timed out
+    assert profile['trigger_cmd'] == ':SENS1:SWE:MODE SING'  # PNA manual single accept
 
 
 def test_duplicate_measurement_name_is_recognised():
@@ -280,6 +280,12 @@ def test_reconnect_reuses_measurements_instead_of_raising():
             self.sent.append(cmd)
             if cmd == '*IDN?':
                 return self.IDN
+            if cmd == ':SENS1:BAND?':
+                return '1000'
+            if cmd == ':CALC1:EQU:STAT?':
+                return '0'
+            if cmd == ':CALC1:PAR:CAT:EXT?':
+                return '"S11,S11,S21,S21,S12,S12,S22,S22"'
             if cmd == ':SYST:ERR?':
                 if any(t in self._last_write for t in (
                         ':PAR:DEF', ':PAR:SDEF', ':PAR:EXT')):

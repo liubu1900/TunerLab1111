@@ -80,6 +80,7 @@ class TunerMotionController(ZmotionMotionController):
         """Adopt ``HOME_STATUS`` and keep the axes homed through OP."""
         super().refresh_home_state()
         self.homed_axes |= {name for name in self.op_homed if name in self.axes}
+        self.homed_axes -= getattr(self, '_untrusted_home', set())
         self.homed = len(self.homed_axes) == len(self.axes)
         return set(self.homed_axes)
 
@@ -164,7 +165,7 @@ class TunerMotionController(ZmotionMotionController):
     def datum_channel(self, axis: str) -> int:
         """Input channel wired to ``axis``' zero switch (``-1`` if unknown)."""
         params = self.axis_params.get(axis)
-        if params is not None and getattr(params, 'datum_in', -1) >= 0:
+        if params is not None:
             return int(params.datum_in)
         fallback = self.datum_input(axis)
         if fallback >= 0:
@@ -198,7 +199,8 @@ class TunerMotionController(ZmotionMotionController):
     def origin_is_on(self, axis: str) -> bool | None:
         """``True`` when the axis sits on its zero switch; ``None`` if unknown."""
         level = self.read_datum_inputs().get(axis)
-        return None if level is None else bool(level)
+        active = getattr(self.axis_params.get(axis), 'datum_active', 1)
+        return None if level is None else level == active
 
     # -- units -----------------------------------------------------------
     def axis_status_snapshot(self, detailed: bool = False) -> list[dict[str, float]]:
@@ -214,8 +216,10 @@ class TunerMotionController(ZmotionMotionController):
             # with this input ON (see home_via_output).
             origin = self.read_datum_inputs().get(entry['axis'])
             entry['datum_input'] = self.datum_channel(entry['axis'])
-            entry['origin_on'] = None if origin is None else bool(origin)
-            if entry['axis'] in self.op_homed:
+            active = getattr(self.axis_params.get(entry['axis']), 'datum_active', 1)
+            entry['origin_on'] = None if origin is None else origin == active
+            if (entry['axis'] in self.op_homed and
+                    entry['axis'] not in getattr(self, '_untrusted_home', set())):
                 entry['home_status'] = 1.0
                 entry['homed'] = True
         return snapshot
@@ -324,7 +328,7 @@ class TunerMotionController(ZmotionMotionController):
         """
         if axis not in self.axes:
             raise ValueError(f'unknown axis: {axis}')
-        self._require_ready(require_home=False)
+        self._require_ready(require_home=False, axes=[axis])
         if self.stopped:
             raise MotionError('急停已锁存，请先复位急停')
         if self.faulted:
@@ -341,15 +345,21 @@ class TunerMotionController(ZmotionMotionController):
         # not follow the axis numbering on a given machine.
         index = self.physical_axis(axis)
         output = self.output(axis)
-        pulse_seconds = self.HOME_PULSE_SECONDS if pulse is None else float(pulse)
+        params = self.axis_params.get(axis)
+        if self.datum_channel(axis) < 0:
+            raise MotionError('该轴原点输入未配置，不能确认回零')
+        pulse_seconds = getattr(params, 'home_pulse', self.HOME_PULSE_SECONDS) if pulse is None else float(pulse)
+        active = bool(getattr(params, 'home_output_active', 1))
         timeout = self.HOME_SETTLE_TIMEOUT if settle_timeout is None else float(settle_timeout)
         start_mpos = self.link.get_mpos(index)
         started = time.monotonic()
 
         # The operator's two clicks: output on, then off.
-        self._set_op(output, True)
-        time.sleep(pulse_seconds)
-        self._set_op(output, False)
+        self._set_op(output, active)
+        try:
+            time.sleep(pulse_seconds)
+        finally:
+            self._set_op(output, not active)
 
         # Wait until the encoder stops moving (the drive finished its cycle).
         last = None
@@ -380,14 +390,15 @@ class TunerMotionController(ZmotionMotionController):
             raise MotionError(
                 f'{axis} 回零后无法读取原点输入 IN({channel})，无法确认是否到位。\n'
                 '检查该轴的 `datum_in` 参数是否指向正确的输入口。')
-        if not origin:
+        if origin != getattr(params, 'datum_active', 1):
             raise MotionError(
-                f'{axis} 回零未成功：轴已停止，但原点输入 IN({channel}) 仍为 0（应为 ON）。\n'
+                f'{axis} 回零未成功：轴已停止，但原点输入 IN({channel}) 未达到设定的有效电平。\n'
                 f'  位移 {travel_mm * 1000:.0f} µm，耗时 {elapsed:.1f}s\n'
                 f'  DPOS 未清零（仍为 {float(self.link.get_dpos(index)):.4f} mm）\n'
                 '常见原因：原点传感器无信号 / 接线松动 / 输入口配错 / INVERT_IN 极性反了。')
 
         self.link.set_dpos(index, 0.0)
+        getattr(self, '_untrusted_home', set()).discard(axis)
         self.op_homed.add(axis)
         self.homed_axes.add(axis)
         self.homed = len(self.homed_axes) == len(self.axes)

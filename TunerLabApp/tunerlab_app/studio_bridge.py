@@ -91,6 +91,7 @@ def _init_real(state, body: dict):
         state.studio['vna'] = vna
         state.studio['vna_source'] = vna_source_used
         state.studio['motion_source'] = 'real'
+        state.studio['hardware_context'] = state.hw.context()
         state.studio['homed_axes'] = homed_axes
         state.studio['manager'] = None
         state.studio['database'] = None
@@ -141,8 +142,15 @@ def _build_vna(state, body: dict, config, motion):
         vna = create_vna(vendor, host, port, timeout,
                          interface=interface, resource=resource,
                          dialect=dialect or None)
-        vna.connect()
-        vna.set_sweep(start, stop, points)
+        try:
+            vna.connect()
+            vna.set_sweep(start, stop, points)
+        except Exception:
+            try:
+                vna.close()
+            except Exception:
+                pass
+            raise
         return vna, 'real'
     vna = MockVNAController(config, motion, DEFAULT_FREQUENCIES)
     vna.initialize()

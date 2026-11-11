@@ -125,7 +125,7 @@ class SafeAxisMotionPage(AxisMotionPage):
         layout = self.layout()
         if layout is None:
             return
-        keep = [getattr(self, '_kpi_row', None), getattr(self, 'status_card', None),
+        keep = [getattr(self, 'installation_bar', None), getattr(self, '_kpi_row', None), getattr(self, 'status_card', None),
                 getattr(self, 'panels_scroll', None), getattr(self, '_ops_card', None),
                 getattr(self, '_notice_card', None)]
         keep = [w for w in keep if w is not None]
@@ -369,7 +369,7 @@ class SafeAxisMotionPage(AxisMotionPage):
         table = self.status_table
         table.setRowCount(len(self.session.axes))
         for row, name in enumerate(self.session.axes):
-            axis_item = QTableWidgetItem(name)
+            axis_item = QTableWidgetItem(f'{name} · 轴{self.session.active_unit.physical_axis(name)}')
             axis_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             font = axis_item.font()
             font.setBold(True)
@@ -449,7 +449,7 @@ class SafeAxisMotionPage(AxisMotionPage):
 
         head = QHBoxLayout()
         head.setSpacing(8)
-        name = QLabel(axis)
+        name = QLabel(f'{axis} · 轴{self.session.active_unit.physical_axis(axis)}')
         name.setFont(px_font(13.5, 'demibold'))
         name.setStyleSheet('color:#16233a;')
         head.addWidget(name)
@@ -538,6 +538,8 @@ class SafeAxisMotionPage(AxisMotionPage):
         body.addLayout(form, 1)
         vbox.addLayout(body)
 
+        for button in (jog_neg, jog_pos, abs_btn, home_btn, probe_btn):
+            button.setProperty('installation_context', self.session.context())
         self.axis_panels[axis] = {
             'panel': panel, 'light': light, 'home_text': home_text,
             'bar': bar, 'dpos_label': dpos_label, 'mpos_label': mpos_label,
@@ -545,11 +547,11 @@ class SafeAxisMotionPage(AxisMotionPage):
             'target': target, 'abs_btn': abs_btn, 'home_btn': home_btn,
             'probe_btn': probe_btn,
         }
-        jog_neg.clicked.connect(lambda _=False, a=axis: self.on_jog(a, -1))
-        jog_pos.clicked.connect(lambda _=False, a=axis: self.on_jog(a, +1))
-        abs_btn.clicked.connect(lambda _=False, a=axis: self.on_absolute(a))
-        home_btn.clicked.connect(lambda _=False, a=axis: self.on_home(a))
-        probe_btn.clicked.connect(lambda _=False, a=axis: self.on_probe_scale(a))
+        jog_neg.clicked.connect(lambda _=False, a=axis, ctx=self.session.context(): self._bound_axis_action(ctx, lambda: self.on_jog(a, -1), a))
+        jog_pos.clicked.connect(lambda _=False, a=axis, ctx=self.session.context(): self._bound_axis_action(ctx, lambda: self.on_jog(a, +1), a))
+        abs_btn.clicked.connect(lambda _=False, a=axis, ctx=self.session.context(): self._bound_axis_action(ctx, lambda: self.on_absolute(a), a))
+        home_btn.clicked.connect(lambda _=False, a=axis, ctx=self.session.context(): self._bound_axis_action(ctx, lambda: self.on_home(a), a))
+        probe_btn.clicked.connect(lambda _=False, a=axis, ctx=self.session.context(): self._bound_axis_action(ctx, lambda: self.on_probe_scale(a), a))
         add_card_shadow(panel, blur=12)
         return panel
 
@@ -561,8 +563,11 @@ class SafeAxisMotionPage(AxisMotionPage):
             panel.setMinimumWidth(196)
             target.addWidget(panel)
 
-    def rebuild_for_model(self) -> None:
+    def rebuild_for_model(self, *_) -> None:
         """Recreate the table rows and the panels after a tuner-model switch."""
+        self._pending_scale = None
+        if hasattr(self, 'apply_scale_button'):
+            self.apply_scale_button.setVisible(False)
         for name in list(self.axis_panels):
             entry = self.axis_panels.pop(name)
             entry['panel'].deleteLater()
@@ -706,6 +711,7 @@ class SafeAxisMotionPage(AxisMotionPage):
                 operation_log.info('回零', '回零清零',
                                    f'{axis} DPOS {dpos:.4f} → 0', axis=axis)
 
+        getattr(controller, '_untrusted_home', set()).discard(axis)
         controller.homed_axes.add(axis)
         controller.homed = len(controller.homed_axes) == len(controller.axes)
         operation_log.log('回零', '单轴回零', f'{axis} 回零完成', 'info',
@@ -807,7 +813,7 @@ class SafeAxisMotionPage(AxisMotionPage):
             else:
                 homed_text = f'已回零 · IN{channel}={"ON" if origin else "OFF"}'
             values = (
-                name,
+                f'{name} · 轴{self.session.active_unit.physical_axis(name)}',
                 f'{dpos:.4f}',
                 f'{mpos:.4f}',
                 f'{dpos - mpos:.4f}',
@@ -877,6 +883,7 @@ class SafeAxisMotionPage(AxisMotionPage):
 
     def _probe_scale(self, axis: str) -> None:
         """Scale self-check over a distance the encoder can actually resolve."""
+        context = self.session.context()
         controller = self.session.require_controller()
         try:
             result = controller.probe_axis_scale(axis, distance=self.PROBE_DISTANCE_MM)
@@ -885,10 +892,17 @@ class SafeAxisMotionPage(AxisMotionPage):
             raise
         # This runs on a worker thread: hand the numbers to the GUI thread
         # instead of writing into the labels here.
+        result['_installation_context'] = context
         self._scale_probe_done.emit(result)
 
     def _apply_scale_probe(self, result: dict) -> None:
         """Show a finished scale self-check (GUI thread)."""
+        if '_installation_context' in result:
+            try:
+                self.session.check_context(result['_installation_context'])
+            except Exception:
+                self.log('旧 Tuner 的标度结果已丢弃')
+                return
         axis = str(result.get('axis', '?'))
         ratio = float(result['ratio'])
         commanded = float(result['commanded'])
@@ -987,6 +1001,14 @@ class SafeAxisMotionPage(AxisMotionPage):
         """
         if self._motion_busy:
             self.log('已有运动任务在执行，忽略本次请求')
+            return
+        sender = self.sender()
+        expected = sender.property('installation_context') if sender is not None else None
+        try:
+            action = self.session.reserve_task(action, motion=True, expected=expected,
+                                               axes=getattr(self, '_requested_axes', None))
+        except Exception as exc:
+            self.report_error(exc)
             return
         self._motion_busy = True
         self._set_motion_controls_enabled(False)

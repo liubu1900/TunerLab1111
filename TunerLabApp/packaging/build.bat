@@ -26,6 +26,7 @@ if not exist "dist\TunerLab\TunerLab.exe" (
     goto :fail
 )
 echo       built: %CD%\dist\TunerLab\TunerLab.exe
+.venv\Scripts\python.exe packaging\windows_runtime.py || goto :fail
 
 echo [3/3] building installer ...
 where iscc >nul 2>nul

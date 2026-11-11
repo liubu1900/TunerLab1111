@@ -4,18 +4,17 @@ The release is the *only* artefact an operator receives, so this script owns
 the whole chain and refuses to publish something that does not work:
 
 1. **Version bump.**  ``tunerlab_app/version.py`` and
-   ``packaging/version_info.txt`` are the two places the version is written;
-   both are rewritten from the same value, so the About page, the window
+   ``packaging/version_info.txt`` and ``packaging/installer.iss`` carry the version;
+   all are rewritten from the same value, so the About page, the window
    title and the Windows file properties can never disagree.
 
 2. **Build.**  PyInstaller produces ``dist/TunerLab/TunerLab.exe``.  The
    vendor DLLs (``zauxdll.dll``) are loaded by ``ctypes`` at run time, so
    they are data, not imports -- the spec ships them under ``vendor/zmotion``.
 
-3. **Runtime fix-up.**  PyInstaller does not bundle the VC++/MFC runtime
-   that ``zauxdll.dll`` needs, so the six runtime DLLs of the previous
-   release are copied into both the ``_internal`` root and
-   ``vendor/zmotion``.
+3. **Runtime fix-up.** Bundle the VC++ 2010 x64 runtime required by the
+   shipped ``zmotion.dll`` from the installed Microsoft redistributable.
+   No previous release directory is required.
 
 4. **Verification.**  The frozen EXE is started twice: once for
    ``--version`` and once for ``--smoke-test``, which walks every page.  A
@@ -55,10 +54,6 @@ DIST = APP_ROOT / 'dist'
 APP_DIR = DIST / 'TunerLab'
 INTERNAL = APP_DIR / '_internal'
 VENDOR = INTERNAL / 'vendor' / 'zmotion'
-
-#: VC++/MFC runtime that ``zauxdll.dll`` links against.
-RUNTIME_DLLS = ('mfc140u.dll', 'mfcm140.dll', 'mfcm140u.dll',
-                'msvcp140.dll', 'msvcp140_1.dll', 'concrt140.dll')
 
 FAILS: list[str] = []
 
@@ -149,64 +144,37 @@ def run(label: str, args: list[str], cwd: Path | None = None,
     return out
 
 
-def previous_release_internal() -> Path | None:
-    """The ``_internal`` folder of the newest existing release."""
-    if not RELEASES.is_dir():
-        return None
-    candidates = sorted(RELEASES.glob('TunerLab-*-dist_*/TunerLab/_internal'),
-                        reverse=True)
-    return candidates[0] if candidates else None
-
-
-def copy_runtime_dlls(source: Path | None) -> None:
-    """Copy the VC++/MFC runtime into both locations the loader looks at."""
-    if source is None:
-        check('运行时 DLL 来源（上一版本发布包）', False, '找不到上一版本')
-        return
-    for target in (INTERNAL, VENDOR):
-        target.mkdir(parents=True, exist_ok=True)
-    for name in RUNTIME_DLLS:
-        src = source / name
-        if not src.is_file():
-            check(f'运行时 DLL 源存在 {name}', False, str(src))
-            continue
-        for target in (INTERNAL, VENDOR):
-            shutil.copy2(src, target / name)
-    present = all((INTERNAL / n).is_file() and (VENDOR / n).is_file()
-                  for n in RUNTIME_DLLS)
-    check('6 个 VC++/MFC DLL 已补齐（两处）', present)
-
-
 def build(version: str) -> None:
     """PyInstaller build + runtime fix-up + frozen-binary smoke test."""
     python = sys.executable
     run('PyInstaller 构建', [python, '-m', 'PyInstaller', str(SPEC),
                              '--noconfirm', '--clean'],
         cwd=APP_ROOT, timeout=1800)
+    if FAILS:
+        return
 
     exe = APP_DIR / 'TunerLab.exe'
     check('生成 TunerLab.exe', exe.is_file(), str(exe))
     if not exe.is_file():
         return
 
-    copy_runtime_dlls(previous_release_internal())
+    run('运行时及运动 DLL 加载核对',
+        [python, str(APP_ROOT / 'packaging' / 'windows_runtime.py'), '--app-dir', str(APP_DIR)],
+        cwd=APP_ROOT, timeout=180)
+    if FAILS:
+        return
     check('zauxdll/zmotion 由 spec 带入',
           (VENDOR / 'zauxdll.dll').is_file() and (VENDOR / 'zmotion.dll').is_file())
 
-    out = run('冻结包 --version', [str(exe), '--version'], cwd=APP_DIR, timeout=180)
-    check(f'版本号 = {version}', version in out, out[:120])
+    run('冻结包 --version', [str(exe), '--version'], cwd=APP_DIR, timeout=180)
+    # Windowed PyInstaller executables may have no stdout; verify the actual
+    # Windows file resource rather than requiring a console output stream.
+    out = run('冻结包版本资源', ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
+              '(Get-Item -LiteralPath $env:TUNERLAB_RELEASE_EXE).VersionInfo.FileVersion'],
+              cwd=APP_DIR, env={'TUNERLAB_RELEASE_EXE': str(exe)}, timeout=180)
+    check(f'版本号 = {version}', out.strip() == f'{version}.0', out[:120])
 
     run('冻结包 --smoke-test', [str(exe), '--smoke-test'], cwd=APP_DIR, timeout=600)
-
-    probe = (
-        "import ctypes;"
-        f"p=r'{VENDOR / 'zauxdll.dll'}';"
-        "d=ctypes.WinDLL(p);"
-        "assert hasattr(d,'ZAux_OpenEth');"
-        "print('zauxdll loaded + ZAux_OpenEth bound')"
-    )
-    run('冻结包 DLL 自包含加载', [python, '-c', probe], cwd=APP_DIR, timeout=180)
-
 
 # ------------------------------------------------------------------ archive
 def archive(version: str) -> Path | None:
@@ -278,6 +246,8 @@ def main() -> int:
     if args.dry_run:
         print('dry-run：未改动任何文件')
         return 0
+    if sys.platform != 'win32':
+        parser.error('Windows releases must be built on Windows x64')
 
     write_version(version, release_date)
     check('版本号写入 version.py',
@@ -289,7 +259,8 @@ def main() -> int:
           in INSTALLER_FILE.read_text(encoding='utf-8'))
 
     build(version)
-    archive(version)
+    if not FAILS:
+        archive(version)
 
     if FAILS:
         print(f'\n{len(FAILS)} 项失败: {FAILS}')

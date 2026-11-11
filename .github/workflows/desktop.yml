@@ -8,14 +8,15 @@ permissions:
 jobs:
   validate:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     env:
       QT_QPA_PLATFORM: offscreen
-      TUNERLAB_DATA_DIR: ${{ runner.temp }}/tunerlab-data
-      APPDATA: ${{ runner.temp }}/tunerlab-appdata
-      LOCALAPPDATA: ${{ runner.temp }}/tunerlab-localappdata
+      TUNERLAB_DATA_DIR: ${{ github.workspace }}/.ci-data/data
+      APPDATA: ${{ github.workspace }}/.ci-data/appdata
+      LOCALAPPDATA: ${{ github.workspace }}/.ci-data/localappdata
       PYTHONPATH: ${{ github.workspace }}/TunerLabApp
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +30,13 @@ jobs:
       - name: Desktop startup check
         working-directory: TunerLabApp
         run: python -m tunerlab_app --smoke-test
+      - name: Retain validation results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.os }}
+          path: test-results.xml
+          if-no-files-found: warn
       - name: Install Windows packager
         if: runner.os == 'Windows'
         run: python -m pip install pyinstaller==6.16.0
@@ -36,12 +44,56 @@ jobs:
         if: runner.os == 'Windows'
         working-directory: TunerLabApp
         run: python -m PyInstaller packaging/tunerlab.spec --noconfirm --clean
+      - name: Bundle and check Windows motion runtime
+        if: runner.os == 'Windows'
+        working-directory: TunerLabApp
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:SystemRoot/System32/msvcr100.dll")) {
+            choco install vcredist2010 --version=10.0.40219.325 --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'VC++ 2010 x64 runtime installation failed' }
+          }
+          python packaging/windows_runtime.py
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled motion DLL verification failed' }
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        working-directory: TunerLabApp
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
+          $language = "${env:ProgramFiles(x86)}/Inno Setup 6/Languages/ChineseSimplified.isl"
+          if (-not (Test-Path $iscc) -or -not (Test-Path $language)) {
+            choco upgrade innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+          & $iscc packaging/installer.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+      - name: Check Windows installation
+        if: runner.os == 'Windows'
+        working-directory: TunerLabApp
+        shell: pwsh
+        run: |
+          $version = python -c "from tunerlab_app.version import __version__; print(__version__)"
+          $target = Join-Path $env:RUNNER_TEMP 'TunerLab-installed'
+          $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=`"$target`"")
+          $install = Start-Process -FilePath "dist/installer/TunerLab-$version-Setup.exe" -ArgumentList $arguments -PassThru
+          if (-not $install.WaitForExit(120000)) { $install.Kill(); throw 'Installer timed out' }
+          if ($install.ExitCode -ne 0) { throw "Installer failed: $($install.ExitCode)" }
+          $exe = Join-Path $target 'TunerLab.exe'
+          if ((Get-Item $exe).VersionInfo.FileVersion -ne "$version.0") { throw 'Installed EXE version mismatch' }
+          python packaging/windows_runtime.py --app-dir "$target" --check-only
+          if ($LASTEXITCODE -ne 0) { throw 'Installed motion DLL check failed' }
+          $smoke = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru
+          if (-not $smoke.WaitForExit(60000)) { $smoke.Kill(); throw 'Installed smoke test timed out' }
+          if ($smoke.ExitCode -ne 0) { throw "Installed smoke test failed: $($smoke.ExitCode)" }
       - name: Check frozen application and create ZIP
         if: runner.os == 'Windows'
         working-directory: TunerLabApp
         shell: pwsh
         run: |
           $version = python -c "from tunerlab_app.version import __version__; print(__version__)"
+          $fileVersion = (Get-Item dist/TunerLab/TunerLab.exe).VersionInfo.FileVersion
+          if ($fileVersion -ne "$version.0") { throw "EXE version mismatch: $fileVersion" }
           $process = Start-Process -FilePath dist/TunerLab/TunerLab.exe -ArgumentList '--smoke-test' -PassThru
           if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Frozen smoke test timed out' }
           if ($process.ExitCode -ne 0) { throw "Frozen smoke test failed: $($process.ExitCode)" }
@@ -49,9 +101,46 @@ jobs:
           Compress-Archive -Path "dist/TunerLab-$version" -DestinationPath "dist/TunerLab-$version-win64.zip"
           python packaging/verify_release.py
           if ($LASTEXITCODE -ne 0) { throw 'Release verification failed' }
+          $setup = "TunerLab-$version-Setup.exe"
+          Copy-Item "dist/installer/$setup" "dist/$setup"
+          $files = @("dist/TunerLab-$version-win64.zip", "dist/$setup")
+          $checksums = $files | ForEach-Object {
+            $hash = Get-FileHash $_ -Algorithm SHA256
+            "$($hash.Hash.ToLower())  $([IO.Path]::GetFileName($_))"
+          }
+          [IO.File]::WriteAllText((Join-Path $PWD "dist/TunerLab-$version-SHA256SUMS.txt"), ($checksums -join "`n") + "`n", [Text.Encoding]::ASCII)
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Windows' && success()
         with:
           name: TunerLab-windows
-          path: TunerLabApp/dist/*-win64.zip
+          path: |
+            TunerLabApp/dist/*-win64.zip
+            TunerLabApp/dist/*-Setup.exe
+            TunerLabApp/dist/*-SHA256SUMS.txt
+          if-no-files-found: error
           retention-days: 14
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: TunerLab-windows
+          path: release-assets
+      - name: Publish verified Windows release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python -c "import sys; sys.path.insert(0, 'TunerLabApp'); from tunerlab_app.version import __version__; print(__version__)")
+          test "$RELEASE_TAG" = "v$version"
+          (cd release-assets && sha256sum -c "TunerLab-$version-SHA256SUMS.txt")
+          gh release create "$RELEASE_TAG" release-assets/* \
+            --verify-tag --title "TunerLab $version" \
+            --notes-file "TunerLabApp/docs/RELEASE_$version.md"

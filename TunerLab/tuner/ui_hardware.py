@@ -23,7 +23,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar,
-    QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QPushButton, QSpinBox, QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .axis_params import (
@@ -53,6 +53,11 @@ _PARAM_COLUMNS = (
     ('jog_speed', '点动速度 JOG (mm/s)', 'float'),
     ('invert_step', '脉冲模式 INVERT_STEP', 'int'),
     ('datum_in', '原点输入口 DATUM_IN', 'int'),
+    ('home_wait', '回零等待 HOME_WAIT (ms)', 'int'),
+    ('home_output', '回零输出 OP (-1未配置)', 'int'),
+    ('home_pulse', '回零脉冲 (s)', 'float'),
+    ('home_output_active', 'OP有效电平', 'int'),
+    ('datum_active', '原点有效电平', 'int'),
     ('fs_limit', '正向限位 FS_LIMIT (mm)', 'float'),
     ('rs_limit', '负向限位 RS_LIMIT (mm)', 'float'),
     ('datum_mode', '回零模式 DATUM_MODE', 'int'),
@@ -60,7 +65,10 @@ _PARAM_COLUMNS = (
 )
 
 
-class HardwareSession(QObject):
+from .layout_session import InstallationSession
+
+
+class HardwareSession(InstallationSession, QObject):
     """Owns the controller connection and the shared settings.
 
     This is a non-visual coordinator: it is the single owner of the controller link and
@@ -79,72 +87,49 @@ class HardwareSession(QObject):
         self.link: ZmotionController | None = None
         self.controller: ZmotionMotionController | None = None
         self._calibration_stale: bool = False
+        self.init_installation()
 
     # -- settings --------------------------------------------------------
     def _load_settings(self) -> TunerSettings:
         try:
             return self.store.load()
-        except ValueError:
+        except ValueError as exc:
             # A broken file must not block startup; the operator is told and the
             # defaults are used until the file is repaired.
-            return TunerSettings()
+            if self.store.path.exists():
+                backup = self.store.path.with_name(self.store.path.name + '.invalid.bak')
+                if not backup.exists():
+                    backup.write_bytes(self.store.path.read_bytes())
+            settings = TunerSettings(configuration_error=str(exc))
+            return settings
 
     def save_settings(self) -> Path:
         path = self.store.save(self.settings)
         self.settings_changed.emit()
         return path
 
-    def set_connection_settings(self, ip: str, connect_on_start: bool | None = None) -> None:
+    def set_connection_settings(self, ip, connect_on_start=None):
         from .settings import ConnectionSettings
-        self.settings.connection = ConnectionSettings(
-            ip=ip,
-            connect_on_start=(self.settings.connection.connect_on_start
-                              if connect_on_start is None else connect_on_start),
-        )
-        self.save_settings()
+        import copy
+        with self._installation_lock:
+            self._assert_idle()
+            if self.connected and ip != self.settings.connection.ip:
+                raise MotionError('修改连接地址前请先断开控制器')
+            candidate = copy.deepcopy(self.settings)
+            candidate.connection = ConnectionSettings(
+                ip=ip, connect_on_start=(candidate.connection.connect_on_start
+                                        if connect_on_start is None else bool(connect_on_start)))
+            if candidate.connection == self.settings.connection:
+                return
+            self._commit_settings(candidate)
+            self._bind_controller()
+            self.settings_changed.emit()
 
     #: Fields whose change moves the physical reference of a position, so the
     #: axis must be re-homed before it may move again.
     _HOME_INVALIDATING = {'units', 'invert_step', 'datum_in', 'datum_mode',
-                          'feedback_scale'}
+                          'feedback_scale', 'home_output', 'datum_active', 'home_output_active', 'home_pulse'}
 
-    def set_axis_parameters(self, axis_params: dict[str, AxisParams]) -> None:
-        """Merge new per-axis parameters into the stored settings and persist them.
-
-        Only the axes present in ``axis_params`` are replaced; the parameters of the
-        other axes are preserved, so saving one axis never silently drops the others.
-
-        Editing a coordinate-frame field (UNITS, direction, limits, origin or feedback
-        scale) clears the affected axes' homing state -- the machine must be re-homed
-        before it may move -- and marks any loaded calibration as stale, because a
-        saved position no longer maps to the same physical point.
-        """
-        merged = dict(self.settings.axes)
-        home_invalidated: set[str] = set()
-        calib_invalidated = False
-        for name, params in axis_params.items():
-            previous = merged.get(name)
-            merged[name] = params
-            if previous is None:
-                continue
-            changed = {f for f in COORDINATE_FIELDS
-                       if getattr(previous, f, None) != getattr(params, f, None)}
-            if changed:
-                calib_invalidated = True
-            if changed & self._HOME_INVALIDATING:
-                home_invalidated.add(name)
-        self.settings.axes = merged
-        # Keep the per-tuner map in sync, so switching to the other tuner and
-        # back does not resurrect the pre-edit parameters.
-        self.settings.axes_by_unit[self.settings.active_unit] = dict(merged)
-        if home_invalidated and self.controller is not None:
-            for name in home_invalidated:
-                self.controller.homed_axes.discard(name)
-            self.controller.homed = (
-                len(self.controller.homed_axes) == len(self.axes))
-        if calib_invalidated:
-            self.mark_calibration_stale()
-        self.save_settings()
 
     def mark_calibration_stale(self) -> None:
         """Flag that any loaded calibration no longer matches the machine.
@@ -198,104 +183,40 @@ class HardwareSession(QObject):
             for unit in self.settings.units.values()
         ]
 
-    def set_active_unit(self, key: str) -> None:
-        """Select which tuner the console commands.
 
-        The link is *not* reopened: one controller drives both tuners, so only
-        the motion backend is rebuilt with the new tuner's physical axis block.
-        The homing state is dropped, because the controller reports the homing
-        of the new axes only after they were homed themselves.
-        """
-        key = str(key)
-        if key not in self.settings.units:
-            raise ValueError(f'unknown tuner unit {key!r}; '
-                             f'expected one of {sorted(self.settings.units)}')
-        if key == self.settings.active_unit:
-            return
-        previous = self.settings.unit
-        self.settings.set_unit(key)
-        self.save_settings()
-        self._rebuild_controller()
-        self.settings_changed.emit()
-        self.connection_changed.emit(self.connected)
-        operation_log.info(
-            '系统', '切换 Tuner',
-            f'{previous.label} → {self.active_unit.label} · '
-            f'物理轴 {", ".join(str(a) for a in self.active_unit.physical_axes)}',
-            unit=key, previous=previous.key)
 
-    def _rebuild_controller(self) -> None:
-        """Rebuild the motion backend for the active tuner.
-
-        The link stays open.  Only the axis block, the axis set and the wiring
-        offsets change, so this is cheap and does not disturb the machine.
-        """
-        if self.controller is None:
-            return
-        unit = self.active_unit
-        count = unit.axis_count
-        axes = self.settings.unit_axes()
-        if self.controller.simulated:
-            controller = MockZmotionController(
-                build_virtual_config(axes, axis_count=count),
-                axes, axis_count=count,
-                axis_base=unit.axis_base, op_base=unit.op_base,
-                link=self.controller.link)
-            controller.initialize()
-            controller.home()
-            self.controller = controller
-            # The link models the controller, not the tuner: it stays the
-            # same object, only the axis block it answers for changes.
-            self.link = controller.link
-            return
-        self.controller = ZmotionMotionController(
-            build_tuner_config(axes, axis_count=count),
-            self.link, axes, axis_count=count,
-            axis_base=unit.axis_base, op_base=unit.op_base,
-            datum_in_base=unit.datum_in_base)
-
-    def set_axis_count(self, axis_count: int) -> None:
-        """Switch the tuner model and persist it.
-
-        The parameters of the axes that leave the model are kept, so switching
-        back and forth does not lose a tuned axis.  The motion backend is
-        rebuilt, because it caches the axis set it commands.
-        """
-        count = int(axis_count)
-        if count not in TUNER_MODELS:
-            raise ValueError(
-                f'unsupported axis count {count}; expected one of {sorted(TUNER_MODELS)}')
-        if count == self.settings.axis_count:
-            return
-        self.settings.set_unit_axis_count(self.settings.active_unit, count)
-        self.save_settings()
-        self._rebuild_controller()
-        self.settings_changed.emit()
-        clashes = self.settings.overlapping_units()
-        if clashes:
-            operation_log.warn(
-                '系统', '切换 tuner 型号',
-                f'{count} 轴后两台 Tuner 的物理轴有重叠，'
-                '请确认接线（当前机器只运行一种型号）')
-        operation_log.info('系统', '切换 tuner 型号',
-                           f'{count} 轴: {", ".join(tuner_axes(count))}',
-                           axis_count=count)
-
-    # -- connection ------------------------------------------------------
     @property
     def connected(self) -> bool:
         return self.link is not None and self.link.connected
 
-    def connect(self, ip: str | None = None, mode: str | None = None) -> None:
+    # Explicit wrappers also avoid Shiboken resolving QObject.connect/disconnect
+    # ahead of an inherited Python implementation.
+    def connect(self, ip=None, mode=None):
+        return InstallationSession.connect(self, ip, mode)
+
+    def disconnect(self):
+        return InstallationSession.disconnect(self)
+
+    def _connect_impl(self, ip: str | None = None, mode: str | None = None) -> None:
         """Open the controller link and prepare the motion backend.
 
         ``mode='virtual'`` connects a simulated controller instead of the real
         one.  Everything the console does afterwards is identical, so an
         operator can rehearse a procedure without touching the machine.
         """
+        self._assert_idle()
+        self.settings.validate()
         target_mode = str(mode or self.mode).strip().lower()
         if target_mode not in ('real', 'virtual'):
             raise ValueError(f"unknown controller mode: {target_mode!r}")
+        if target_mode == 'real' and (not self.settings.layout_confirmed or self.settings.configuration_error):
+            raise MotionError('请先在通讯设置选择并确认实际设备组合；旧配置文件已保留')
+        if self.connected:
+            self.disconnect()
+        self._controllers.clear()
+        self._parameter_states.clear()
+        self.settings.mode = target_mode
+        self._revision += 1
         target_ip = ip or self.settings.connection.ip
         if target_mode == 'virtual':
             self._connect_virtual()
@@ -314,6 +235,9 @@ class HardwareSession(QObject):
                 axis_base=unit.axis_base, op_base=unit.op_base,
                 datum_in_base=unit.datum_in_base)
             self.controller.initialize()
+            self.controller._untrusted_home = set(self.axes)
+            self.controller.homed_axes.clear()
+            self._bind_controller()
         except Exception as exc:  # noqa: BLE001
             operation_log.exception('通讯', '连接控制器', exc, ip=target_ip)
             raise
@@ -338,6 +262,7 @@ class HardwareSession(QObject):
         controller.home()
         self.controller = controller
         self.link = controller.link
+        self._bind_controller()
         self.connection_changed.emit(True)
         axes_text = ', '.join(self.axes)
         message = (f'虚拟控制器已连接 · {unit.label} '
@@ -353,7 +278,7 @@ class HardwareSession(QObject):
         """'real' or 'virtual'."""
         return self.settings.mode
 
-    def set_mode(self, mode: str) -> None:
+    def _set_mode_impl(self, mode: str) -> None:
         """Switch between the real and the virtual controller.
 
         Switching drops the current link: the two controllers have nothing in
@@ -362,22 +287,31 @@ class HardwareSession(QObject):
         value = str(mode).strip().lower()
         if value not in ('real', 'virtual'):
             raise ValueError(f"unknown controller mode: {mode!r}")
+        self._assert_idle()
         if value == self.settings.mode:
             return
         if self.connected:
             self.disconnect()
-        self.settings.mode = value
-        self.save_settings()
+        import copy
+        candidate = copy.deepcopy(self.settings)
+        candidate.mode = value
+        self._commit_settings(candidate)
+        self.settings_changed.emit()
         operation_log.info('系统', '切换控制器模式',
                            '真实控制器' if value == 'real' else '虚拟控制器',
                            mode=value)
         self.settings_changed.emit()
 
-    def disconnect(self) -> None:
+    def _disconnect_impl(self) -> None:
         """Close the controller link."""
+        self._assert_idle()
         if self.link is not None:
             self.link.close()
+        self._controllers.clear()
+        self._parameter_states.clear()
+        self._revision += 1
         self.controller = None
+        self.link = None
         self.connection_changed.emit(False)
         self.status_changed.emit('连接已断开')
         operation_log.info('通讯', '断开控制器', f'模式: {self.mode}')
@@ -405,6 +339,7 @@ class HardwareSession(QObject):
         Changing ``UNITS`` moves the coordinate system, so the axis is marked as not
         homed afterwards and has to be homed again before it may move.
         """
+        self._assert_idle()
         controller = self.require_controller()
         name = str(axis)
         if name not in self.axes:
@@ -442,15 +377,7 @@ class HardwareSession(QObject):
         return self.controller
 
     # -- axis parameters -------------------------------------------------
-    def apply_parameters_to_controller(self) -> None:
-        """Write the stored axis parameters to the controller."""
-        controller = self.require_controller()
-        controller.apply_axis_parameters(self.settings.axes)
 
-    def read_parameters_from_controller(self) -> dict[str, dict[str, float]]:
-        """Read the controller's current parameters."""
-        controller = self.require_controller()
-        return controller.read_axis_parameters()
 
 
 class _MotionTask(QRunnable):
@@ -560,17 +487,15 @@ class CommunicationPage(_Page):
             '虚拟控制器：内置模拟控制器，无需硬件即可演练全部操作流程，\n'
             '并自动生成位置、状态与标度自检数据。')
         form.addRow('控制器模式', self.mode_combo)
+        from .tuner_units import LAYOUT_LABELS
         self.model_combo = QComboBox()
-        for count in sorted(TUNER_MODELS):
-            self.model_combo.addItem(
-                f'{count} 轴 tuner ({", ".join(tuner_axes(count))})', count)
-        self.model_combo.setCurrentIndex(
-            self.model_combo.findData(session.settings.axis_count))
-        self.model_combo.setToolTip(
-            '选择本机的 tuner 型号：3 轴为 X/Z1/Z2（2 个探针），'
-            '4 轴为 X/Z1/Z2/Z3（3 个探针）。\n'
-            '切换后所有页面只显示该型号的轴，控制器物理轴序号不变。')
-        form.addRow('tuner 型号', self.model_combo)
+        for key, label in LAYOUT_LABELS.items():
+            self.model_combo.addItem(label, key)
+        self.model_combo.setCurrentIndex(self.model_combo.findData(session.settings.layout_id))
+        form.addRow('设备组合', self.model_combo)
+        self.confirm_layout_button = QPushButton('确认设备组合与接线')
+        self.confirm_layout_button.clicked.connect(self.on_model_changed)
+        form.addRow('', self.confirm_layout_button)
         row = QHBoxLayout()
         self.connect_button = QPushButton('连接')
         self.connect_button.setProperty('accent', True)
@@ -756,17 +681,15 @@ class CommunicationPage(_Page):
         self.state_label.setText(f'模式: {label}')
         self.log(f'控制器模式已切换为 {label}')
 
-    def on_model_changed(self) -> None:
-        """Apply the selected tuner model to the session."""
-        count = self.model_combo.currentData()
+    def on_model_changed(self):
         try:
-            self.session.set_axis_count(int(count))
-        except Exception as exc:  # noqa: BLE001
+            self.session.set_layout(self.model_combo.currentData())
+        except Exception as exc:
             self.report_error(exc)
-            return
-        self.state_label.setText(
-            f'tuner 型号: {count} 轴 ({", ".join(tuner_axes(int(count)))})')
-        self.log(f'tuner 型号已切换为 {count} 轴')
+        self.model_combo.blockSignals(True)
+        self.model_combo.setCurrentIndex(self.model_combo.findData(self.session.settings.layout_id))
+        self.model_combo.blockSignals(False)
+
 
     def on_reveal(self) -> None:
         path = Path(self.session.store.path)
@@ -897,6 +820,10 @@ class AxisMotionPage(_Page):
 
         # A model switch changes the axis list, so the panels and rows are rebuilt.
         session.settings_changed.connect(self.rebuild_for_model)
+        session.connection_changed.connect(self.rebuild_for_model)
+        from .installation_bar import InstallationBar
+        self.installation_bar = InstallationBar(session, self)
+        root.insertWidget(0, self.installation_bar)
 
     # -- refresh ---------------------------------------------------------
     def _rebuild_summary_rows(self) -> None:
@@ -995,6 +922,8 @@ class AxisMotionPage(_Page):
             '比值不为 1 说明 UNITS 与反馈标度不匹配，轴的实际行程远大于指令数字。')
         vbox.addWidget(probe_btn)
 
+        for button in (jog_neg, jog_pos, abs_btn, home_btn, probe_btn):
+            button.setProperty('installation_context', self.session.context())
         self.axis_panels[axis] = {
             'panel': panel, 'light': light, 'home_text': home_text,
             'bar': bar, 'dpos_label': dpos_label, 'step': step,
@@ -1002,14 +931,14 @@ class AxisMotionPage(_Page):
             'abs_btn': abs_btn, 'home_btn': home_btn, 'probe_btn': probe_btn,
         }
         # Capture ``axis`` by value so each panel drives its own axis.
-        jog_neg.clicked.connect(lambda _=False, a=axis: self.on_jog(a, -1))
-        jog_pos.clicked.connect(lambda _=False, a=axis: self.on_jog(a, +1))
-        abs_btn.clicked.connect(lambda _=False, a=axis: self.on_absolute(a))
-        home_btn.clicked.connect(lambda _=False, a=axis: self.on_home(a))
-        probe_btn.clicked.connect(lambda _=False, a=axis: self.on_probe_scale(a))
+        jog_neg.clicked.connect(lambda _=False, a=axis, ctx=self.session.context(): self._bound_axis_action(ctx, lambda: self.on_jog(a, -1), a))
+        jog_pos.clicked.connect(lambda _=False, a=axis, ctx=self.session.context(): self._bound_axis_action(ctx, lambda: self.on_jog(a, +1), a))
+        abs_btn.clicked.connect(lambda _=False, a=axis, ctx=self.session.context(): self._bound_axis_action(ctx, lambda: self.on_absolute(a), a))
+        home_btn.clicked.connect(lambda _=False, a=axis, ctx=self.session.context(): self._bound_axis_action(ctx, lambda: self.on_home(a), a))
+        probe_btn.clicked.connect(lambda _=False, a=axis, ctx=self.session.context(): self._bound_axis_action(ctx, lambda: self.on_probe_scale(a), a))
         return panel
 
-    def rebuild_for_model(self) -> None:
+    def rebuild_for_model(self, *_) -> None:
         """Recreate both the summary rows and the per-axis panels for the model."""
         self._rebuild_summary_rows()
         for name in list(self.axis_panels):
@@ -1122,6 +1051,16 @@ class AxisMotionPage(_Page):
         self.log(f'{axis} 回零结束，状态码 {int(homed)}')
         self.refresh_positions()
 
+    def _bound_axis_action(self, context, callback, axis=None):
+        self._requested_axes = [axis] if axis else None
+        try:
+            self.session.check_context(context)
+            callback()
+        except Exception as exc:
+            self.report_error(exc)
+        finally:
+            self._requested_axes = None
+
     def _run_motion(self, action) -> None:
         """Submit a blocking motion to a worker thread (P0-02).
 
@@ -1133,6 +1072,14 @@ class AxisMotionPage(_Page):
         """
         if self._motion_busy:
             self.log('已有运动任务在执行，忽略本次请求')
+            return
+        try:
+            sender = self.sender()
+            expected = sender.property('installation_context') if sender else None
+            action = self.session.reserve_task(action, motion=True, expected=expected,
+                                               axes=getattr(self, '_requested_axes', None))
+        except Exception as exc:
+            self.report_error(exc)
             return
         self._motion_busy = True
         self._set_motion_controls_enabled(False)
@@ -1165,8 +1112,7 @@ class AxisMotionPage(_Page):
         self.run_action(self._stop)
 
     def _stop(self) -> None:
-        controller = self.session.require_controller()
-        controller.stop_all()
+        self.session.stop_configured_axes()
         operation_log.warn('运动', '停止', '已向全部轴发送停止指令')
         self.log('已发送停止指令')
         self.refresh_positions()
@@ -1256,7 +1202,7 @@ class AxisMotionPage(_Page):
 
     def _emergency_stop(self) -> None:
         controller = self.session.require_controller()
-        controller.emergency_stop()
+        self.session.emergency_stop_all()
         operation_log.error('急停', '触发急停', '软件急停已锁存，需复位后重新回零')
         self.log('急停已触发，软件状态已锁定，需复位后重新回零')
         self.refresh_positions()
@@ -1266,175 +1212,260 @@ class AxisMotionPage(_Page):
 
     def _reset_emergency(self) -> None:
         controller = self.session.require_controller()
-        controller.reset_emergency()
+        self.session.reset_emergency_all()
         operation_log.warn('急停', '复位急停', '急停已复位，请重新回零后再运动')
         self.log('急停已复位，请重新回零后再运动')
         self.refresh_positions()
 
 
 class AxisParameterPage(_Page):
-    """Per-axis parameter table: read from the controller, edit, write and save."""
+    """Local drafts, explicit controller writes and per-axis readback results."""
 
-    def __init__(self, session: HardwareSession, parent=None):
+    def __init__(self, session, parent=None):
         super().__init__(session, parent)
+        from .installation_bar import InstallationBar
+        self.dirty = False
+        self._loading = False
+        self._owner = session.context()
+        self._live = {}
         root = QVBoxLayout(self)
-        root.setSpacing(12)
-
-        toolbar = QHBoxLayout()
-        self.read_button = QPushButton('从控制器读取')
-        self.write_button = QPushButton('写入控制器')
-        self.save_button = QPushButton('保存到文件')
-        self.load_button = QPushButton('从文件加载')
-        self.export_button = QPushButton('导出…')
-        self.import_button = QPushButton('导入…')
-        for widget in (self.read_button, self.write_button, self.save_button,
-                       self.load_button, self.export_button, self.import_button):
-            toolbar.addWidget(widget)
-        toolbar.addStretch()
+        self.installation_bar = InstallationBar(session, self)
+        root.addWidget(self.installation_bar)
+        toolbar = QGridLayout()
+        actions = [('read_button', '读取控制器并比较', self.on_read),
+                   ('write_button', '写入当前 Tuner', self.on_write),
+                   ('write_axis_button', '写入选中轴', self.on_write_axis),
+                   ('save_button', '保存配置', self.on_save),
+                   ('load_button', '从文件加载', self.on_load),
+                   ('adopt_button', '采用读回值', self.on_adopt),
+                   ('copy_button', '从其他配置复制…', self.on_copy),
+                   ('export_button', '导出…', self.on_export),
+                   ('import_button', '导入…', self.on_import)]
+        for number, (attr, label, callback) in enumerate(actions):
+            button = QPushButton(label)
+            setattr(self, attr, button)
+            toolbar.addWidget(button, number // 5, number % 5)
+            button.clicked.connect(callback)
         root.addLayout(toolbar)
-
-        table_box = QGroupBox('轴参数')
-        table_layout = QVBoxLayout(table_box)
-        self.table = QTableWidget(len(session.axes), len(_PARAM_COLUMNS) + 1)
-        self.table.setHorizontalHeaderLabels(
-            ['轴'] + [title for _, title, _ in _PARAM_COLUMNS])
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        self.table = QTableWidget(0, len(_PARAM_COLUMNS) + 1)
+        self.table.setHorizontalHeaderLabels(['轴 / 物理轴'] + [title for _, title, _ in _PARAM_COLUMNS])
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
-        self.table.verticalHeader().setVisible(False)
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, header.ResizeMode.ResizeToContents)
-        for column in range(1, len(_PARAM_COLUMNS) + 1):
-            header.setSectionResizeMode(column, header.ResizeMode.Stretch)
-        table_layout.addWidget(self.table)
-        root.addWidget(table_box)
-
-        self.hint_label = QLabel('')
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        root.addWidget(self.table)
+        self.table.itemChanged.connect(self._edited)
+        self.hint_label = QLabel()
         self.hint_label.setWordWrap(True)
         root.addWidget(self.hint_label)
-
-        root.addWidget(QLabel(
-            '参数修改后需点击「写入控制器」才会下发到设备；'
-            '「保存到文件」只更新本机配置，供下次启动时自动载入。'))
-        root.addStretch()
-
-        self.read_button.clicked.connect(self.on_read)
-        self.write_button.clicked.connect(self.on_write)
-        self.save_button.clicked.connect(self.on_save)
-        self.load_button.clicked.connect(self.on_load)
-        self.export_button.clicked.connect(self.on_export)
-        self.import_button.clicked.connect(self.on_import)
-
-        # A model switch changes the axis list, so the rows have to be rebuilt.
+        from PySide6.QtWidgets import QPlainTextEdit
+        self.live_view = QPlainTextEdit()
+        self.live_view.setReadOnly(True)
+        self.live_view.setPlaceholderText('控制器读回值与差异（不会自动覆盖编辑表）')
+        self.live_view.setMaximumHeight(160)
+        root.addWidget(self.live_view)
+        root.addWidget(QLabel('保存仅更新电脑配置；写入前先保存，写入后逐轴读回校验。'))
+        session._draft_guards.append(self.resolve_draft)
         session.settings_changed.connect(self.rebuild_rows)
+        session.connection_changed.connect(self._connection_changed)
         self.fill_table(session.settings.axes)
 
-    # -- table -----------------------------------------------------------
-    def rebuild_rows(self) -> None:
-        """Resize the table to the active tuner model and refill it."""
-        self.table.setRowCount(len(self.session.axes))
+    def _connection_changed(self, *_):
+        self._live = {}
+        self._owner = self.session.context()
+        self.update_status()
+
+    def _edited(self, *_):
+        if not self._loading:
+            self.dirty = True
+            self.update_status()
+
+    def update_status(self):
+        import json
+        states = self.session.parameter_states()
+        self.hint_label.setText(('存在未保存修改' if self.dirty else '无未保存修改') + '｜' +
+            '；'.join(f'{name}：' + {'matched': '与配置一致', 'different': '存在差异',
+                        'failed': '校验失败', 'not_executed': '未执行'}.get(
+                            states.get(name, {}).get('status'), '未读取') for name in self.session.axes))
+        self.live_view.setPlainText(json.dumps(states, ensure_ascii=False, indent=2) if states else '')
+        self.adopt_button.setEnabled(bool(self._live))
+
+    def resolve_draft(self):
+        if not self.dirty:
+            return True
+        from PySide6.QtCore import QThread
+        if QThread.currentThread() != self.thread():
+            raise MotionError('参数页有未保存修改，请先在桌面处理')
+        answer = QMessageBox.question(self, '未保存的轴参数',
+            '保存配置后切换？选“否”放弃修改，选“取消”保留当前对象。',
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard |
+            QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
+        if answer == QMessageBox.StandardButton.Save:
+            self._save()
+            return True
+        if answer == QMessageBox.StandardButton.Discard:
+            self.dirty = False
+            return True
+        return False
+
+    def rebuild_rows(self):
+        current = self.session.context()
+        identity = lambda c: (c['controller_id'], c['layout_id'], c['unit'])
+        if self.dirty and identity(current) == identity(self._owner):
+            self.update_status()
+            return
+        if identity(current) != identity(self._owner):
+            self._live = {}
         self.fill_table(self.session.settings.axes)
 
-    def fill_table(self, axis_params: dict[str, AxisParams]) -> None:
-        """Populate the table from a parameter mapping."""
-        for row, name in enumerate(self.session.axes):
-            params = axis_params[name]
-            axis_item = QTableWidgetItem(name)
-            axis_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            axis_item.setFont(text_font(10, bold=True))
-            self.table.setItem(row, 0, axis_item)
-            for column, (key, _, kind) in enumerate(_PARAM_COLUMNS, start=1):
-                value = getattr(params, key)
-                if kind == 'int':
-                    text = str(int(value))
-                else:
-                    text = f'{value:g}'
-                item = QTableWidgetItem(text)
-                item.setFont(numeric_font(10))
-                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                self.table.setItem(row, column, item)
+    def fill_table(self, axis_params):
+        self._loading = True
+        self.table.blockSignals(True)
+        try:
+            self.table.setRowCount(len(self.session.axes))
+            for row, name in enumerate(self.session.axes):
+                params = axis_params[name]
+                item = QTableWidgetItem(f'{name} · 轴{self.session.active_unit.physical_axis(name)}')
+                item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                self.table.setItem(row, 0, item)
+                for column, (field, _, kind) in enumerate(_PARAM_COLUMNS, 1):
+                    value = getattr(params, field)
+                    text = str(int(value)) if kind == 'int' else f'{value:g}'
+                    self.table.setItem(row, column, QTableWidgetItem(text))
+        finally:
+            self.table.blockSignals(False)
+            self._loading = False
+        self.dirty = False
+        self._owner = self.session.context()
+        self.update_status()
 
-    def table_to_params(self) -> dict[str, AxisParams]:
-        """Read the table back into validated parameter objects."""
-        result: dict[str, AxisParams] = {}
+    def table_to_params(self):
+        self.session.check_context(self._owner)
+        result = {}
         for row, name in enumerate(self.session.axes):
-            values: dict[str, float | int | str] = {'name': name}
-            for column, (key, _, kind) in enumerate(_PARAM_COLUMNS, start=1):
+            values = dict(self.session.settings.axes[name].to_dict())
+            for column, (field, _, kind) in enumerate(_PARAM_COLUMNS, 1):
                 text = self.table.item(row, column).text().strip()
-                if not text:
-                    raise ValueError(f'{name} 轴的「{key}」为空')
-                try:
-                    values[key] = int(text) if kind == 'int' else float(text)
-                except ValueError as exc:
-                    raise ValueError(f'{name} 轴的「{key}」不是有效数字: {text!r}') from exc
+                values[field] = int(text) if kind == 'int' else float(text)
             result[name] = AxisParams(**values)
         return result
 
-    # -- actions ---------------------------------------------------------
-    def on_read(self) -> None:
-        self.run_action(self._read)
-
-    def _read(self) -> None:
-        live = self.session.read_parameters_from_controller()
-        params = dict(self.session.settings.axes)
-        for name in self.session.axes:
-            current = params[name]
-            updated = dict(current.to_dict())
-            for key, _, kind in _PARAM_COLUMNS:
-                if key in live[name]:
-                    updated[key] = int(live[name][key]) if kind == 'int' else live[name][key]
-            params[name] = AxisParams(**updated)
-        self.fill_table(params)
-        self.hint_label.setText('已从控制器读取当前参数（尚未保存到文件）')
-        self.log('已从控制器读取轴参数')
-
-    def on_write(self) -> None:
-        self.run_action(self._write)
-
-    def _write(self) -> None:
-        params = self.table_to_params()
-        self.session.set_axis_parameters(params)
-        self.session.apply_parameters_to_controller()
-        self.hint_label.setText('参数已写入控制器并保存到文件')
-        self.log('轴参数已写入控制器')
-
-    def on_save(self) -> None:
+    def on_save(self):
         self.run_action(self._save)
 
-    def _save(self) -> None:
+    def _save(self):
         params = self.table_to_params()
         self.session.set_axis_parameters(params)
-        path = self.session.store.path
-        self.hint_label.setText(f'已保存到 {path}')
-        self.log(f'轴参数已保存到 {path}')
+        self.fill_table(self.session.settings.axes)
 
-    def on_load(self) -> None:
+    def on_read(self):
+        self.run_action(self._read)
+
+    def _read(self):
+        self.session.check_context(self._owner)
+        self._live = self.session.read_parameters_from_controller()
+        self.update_status()
+
+    def on_adopt(self):
+        def adopt():
+            params = self.table_to_params()
+            for name, values in self._live.items():
+                raw = params[name].to_dict()
+                for field in __import__('tuner.layout_session', fromlist=['HARDWARE_FIELDS']).HARDWARE_FIELDS:
+                    if field in values:
+                        raw[field] = int(values[field]) if isinstance(raw[field], int) else float(values[field])
+                params[name] = AxisParams(**raw)
+            self.fill_table(params)
+            self.dirty = True
+            self.update_status()
+        self.run_action(adopt)
+
+    def _write(self, names=None):
+        self.session.check_context(self._owner)
+        if self.dirty:
+            raise ValueError('请先保存配置，再明确写入控制器')
+        result = self.session.apply_parameters_to_controller(names)
+        self.update_status()
+        if any(value['status'] != 'matched' for value in result.values()):
+            self.hint_label.setText(self.hint_label.text() + '\n' + str(result))
+            raise ValueError('部分轴写入或校验失败，详情见逐轴状态；其他轴未执行')
+
+    def on_write(self):
+        self.run_action(self._write)
+
+    def on_write_axis(self):
+        def write():
+            row = self.table.currentRow()
+            if row < 0:
+                raise ValueError('请先选中一根轴')
+            self._write([self.session.axes[row]])
+        self.run_action(write)
+
+    def on_load(self):
         self.run_action(self._load)
 
-    def _load(self) -> None:
+    def _load(self):
         settings = self.session.store.load()
-        self.fill_table(settings.axes)
-        self.hint_label.setText(f'已从 {self.session.store.path} 载入（尚未写入控制器）')
-        self.log('已从文件加载轴参数')
+        params = settings.profiles[self.session.settings.layout_id][self.session.settings.active_unit]
+        self.fill_table(params)
 
-    def on_export(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(
-            self, '导出轴参数', 'tuner_axis_parameters.json', 'JSON (*.json)')
-        if not path:
-            return
-        params = self.table_to_params()
-        self.session.store.export(path, TunerSettings(
-            connection=self.session.settings.connection, axes=params))
-        self.log(f'轴参数已导出到 {path}')
+    def copy_parameters(self, layout, unit):
+        """Prepare a local draft; wiring/identity are deliberately excluded."""
+        source = self.session.settings.profiles[layout][unit]
+        target = self.table_to_params()
+        from .layout_session import HARDWARE_FIELDS
+        fields = set(HARDWARE_FIELDS) - {'datum_in'} | {'feedback_scale', 'datum_mode'}
+        for name in self.session.axes:
+            if name in source:
+                raw = target[name].to_dict()
+                for field in fields:
+                    raw[field] = getattr(source[name], field)
+                target[name] = AxisParams(**raw)
+        self.fill_table(target)
+        self.dirty = True
+        self.update_status()
 
-    def on_import(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, '导入轴参数', '', 'JSON (*.json)')
-        if not path:
+    def on_copy(self):
+        from PySide6.QtWidgets import QInputDialog
+        from .tuner_units import LAYOUT_LABELS, layout_units
+        choices = [(layout, unit) for layout in LAYOUT_LABELS for unit in layout_units(layout)
+                   if (layout, unit) != (self.session.settings.layout_id, self.session.settings.active_unit)]
+        labels = [f'{LAYOUT_LABELS[layout]} / {layout_units(layout)[unit].label}' for layout, unit in choices]
+        label, ok = QInputDialog.getItem(self, '复制参数来源', '仅复制同名轴参数；不复制轴号和接线', labels, 0, False)
+        if not ok:
             return
-        settings = SettingsStore.import_from(path)
-        self.fill_table(settings.axes)
-        self.hint_label.setText(f'已从 {path} 导入（尚未写入控制器）')
-        self.log(f'已从 {path} 导入轴参数')
+        layout, unit = choices[labels.index(label)]
+        source = self.session.settings.profiles[layout][unit]
+        target = self.table_to_params()
+        changes = []
+        from .layout_session import HARDWARE_FIELDS
+        for name in self.session.axes:
+            if name in source:
+                for field in set(HARDWARE_FIELDS) - {'datum_in'} | {'feedback_scale', 'datum_mode'}:
+                    if getattr(target[name], field) != getattr(source[name], field):
+                        changes.append(f'{name}.{field}: {getattr(target[name], field)} → {getattr(source[name], field)}')
+        answer = QMessageBox.question(self, '复制差异预览', '\n'.join(changes) or '字段一致；仍作为未保存草稿载入？')
+        if answer == QMessageBox.StandardButton.Yes:
+            self.copy_parameters(layout, unit)
+
+    def on_export(self):
+        import copy
+        path, _ = QFileDialog.getSaveFileName(self, '导出配置', 'tuner_parameters.json', 'JSON (*.json)')
+        if path:
+            candidate = copy.deepcopy(self.session.settings)
+            candidate.axes = self.table_to_params()
+            self.session.store.export(path, candidate)
+
+    def on_import(self):
+        path, _ = QFileDialog.getOpenFileName(self, '导入配置', '', 'JSON (*.json)')
+        if path:
+            def load():
+                settings = SettingsStore.import_from(path)
+                if (settings.layout_id, settings.active_unit) != (self.session.settings.layout_id,
+                                                                self.session.settings.active_unit):
+                    raise ValueError('导入配置的设备组合或 Tuner 不一致，请使用复制并预览')
+                self.fill_table(settings.axes)
+                self.dirty = True
+                self.update_status()
+            self.run_action(load)
 
 
 class OperationLogPage(_Page):

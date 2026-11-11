@@ -64,6 +64,7 @@ class CommunicationPage(QWidget):
         root.addWidget(self._build_note_card())
         root.addStretch(1)
 
+        session.settings_changed.connect(self.sync_installation)
         session.connection_changed.connect(self.on_connection_changed)
         session.status_changed.connect(self.on_status)
         self.on_connection_changed(session.connected)
@@ -94,12 +95,11 @@ class CommunicationPage(QWidget):
             self.mode_combo.findData(self.session.settings.mode))
         self.mode_combo.currentIndexChanged.connect(self.on_mode_changed)
 
+        from tuner.tuner_units import LAYOUT_LABELS
         self.model_combo = QComboBox()
-        for count in sorted(TUNER_MODELS):
-            self.model_combo.addItem(
-                f'{count} 轴 ({"/".join(tuner_axes(count))})', count)
-        self.model_combo.setCurrentIndex(
-            self.model_combo.findData(self.session.settings.axis_count))
+        for key, layout_label in LAYOUT_LABELS.items():
+            self.model_combo.addItem(layout_label, key)
+        self.model_combo.setCurrentIndex(self.model_combo.findData(self.session.settings.layout_id))
         self.model_combo.currentIndexChanged.connect(self.on_model_changed)
 
         # One controller drives two tuners; the combo picks which one the
@@ -136,7 +136,7 @@ class CommunicationPage(QWidget):
         form.addWidget(self.mode_combo, 1, 1)
         form.addWidget(label('当前 Tuner'), 2, 0)
         form.addWidget(self.unit_combo, 2, 1)
-        form.addWidget(label('tuner 型号'), 3, 0)
+        form.addWidget(label('设备组合'), 3, 0)
         form.addWidget(self.model_combo, 3, 1)
         form.addWidget(label('启动'), 4, 0)
         form.addWidget(auto_row, 4, 1)
@@ -148,6 +148,9 @@ class CommunicationPage(QWidget):
         self.unit_hint.setFont(px_font(11.5, 'light'))
         card.body.addWidget(self.unit_hint)
         self._sync_unit_hint()
+        self.confirm_layout_button = QPushButton('确认当前设备组合与接线')
+        self.confirm_layout_button.clicked.connect(self.confirm_layout)
+        card.body.addWidget(self.confirm_layout_button)
 
         self.auto_hint = QLabel('')
         self.auto_hint.setObjectName('PageHint')
@@ -310,6 +313,9 @@ class CommunicationPage(QWidget):
                 connect_on_start=self.auto_connect.isChecked())
         except Exception as exc:  # noqa: BLE001
             operation_log.exception('通讯', '保存通讯设置', exc)
+            self._flash(str(exc))
+            return False
+        return True
 
     def _flash(self, message: str) -> None:
         window = self.window()
@@ -322,6 +328,7 @@ class CommunicationPage(QWidget):
 
     # ---------------- session events ----------------
     def on_connection_changed(self, connected: bool) -> None:
+        self.sync_installation()
         self.connect_button.setEnabled(not connected)
         self.disconnect_button.setEnabled(connected)
         self.state_label.setText('已连接' if connected else '未连接')
@@ -420,7 +427,8 @@ class CommunicationPage(QWidget):
                           description='搜索控制器')
 
     def on_save(self) -> None:
-        self._save_connection()
+        if not self._save_connection():
+            return
         self._sync_auto_hint()
         QMessageBox.information(self, '保存成功',
                                 f'设置已保存到\n{self.session.store.path}')
@@ -438,19 +446,37 @@ class CommunicationPage(QWidget):
             self.session.set_mode(mode)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, '控制器模式', str(exc))
+            self.sync_installation()
             return
         self.ip_edit.setEnabled(mode == 'real')
         self._sync_auto_hint()
 
-    def on_model_changed(self) -> None:
-        count = int(self.model_combo.currentData())
-        try:
-            self.session.set_axis_count(count)
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.warning(self, 'tuner 型号', str(exc))
-            return
+    def sync_installation(self):
+        self.model_combo.blockSignals(True)
+        self.model_combo.setCurrentIndex(self.model_combo.findData(self.session.settings.layout_id))
+        self.model_combo.blockSignals(False)
+        self.mode_combo.blockSignals(True)
+        self.mode_combo.setCurrentIndex(self.mode_combo.findData(self.session.settings.mode))
+        self.mode_combo.blockSignals(False)
+        self.model_combo.setEnabled(not self.session.connected)
+        self.confirm_layout_button.setEnabled(not self.session.connected)
+        self.confirm_layout_button.setText('设备组合已确认' if self.session.settings.layout_confirmed
+                                          else '确认当前设备组合与接线')
+        self._populate_units()
         self._sync_unit_hint()
+        if self.session.settings.configuration_error:
+            self.unit_hint.setText(self.unit_hint.text() + '\n旧配置需修正：' +
+                                   self.session.settings.configuration_error)
+
+    def confirm_layout(self):
+        try:
+            self.session.set_layout(self.model_combo.currentData())
+        except Exception as exc:
+            QMessageBox.warning(self, '设备组合', str(exc))
+        self.sync_installation()
+
+    def on_model_changed(self):
+        self.confirm_layout()
 
 
-#: The shell refers to this name; both names point at the same page.
 SafeCommunicationPage = CommunicationPage

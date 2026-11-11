@@ -182,8 +182,11 @@ class ZmotionMotionController:
 
     def output(self, axis: str | int) -> int:
         """Digital output number used for the OP homing pulse of ``axis``."""
-        logical = self.axes.index(axis) if isinstance(axis, str) else int(axis)
-        return self.op_base + logical
+        name = axis if isinstance(axis, str) else self.axes[int(axis)]
+        configured = getattr(self.axis_params.get(name), 'home_output', -1)
+        if configured >= 0:
+            return configured
+        raise MotionError(f'{name} 回零输出未配置，请先核对接线并保存参数')
 
     def datum_input(self, axis: str | int) -> int:
         """Fallback origin-input channel of ``axis`` for this tuner."""
@@ -215,6 +218,7 @@ class ZmotionMotionController:
         """Adopt the controller's per-axis homing state."""
         self.homed_axes = {name for index, name in enumerate(self.axes)
                            if self.link.home_status(self.physical_axis(index)) == 1}
+        self.homed_axes -= getattr(self, '_untrusted_home', set())
         self.homed = len(self.homed_axes) == len(self.axes)
         return set(self.homed_axes)
 
@@ -248,6 +252,9 @@ class ZmotionMotionController:
         self.initialized = False
 
     def _require_ready(self, require_home: bool = True, axes: Sequence[str] | None = None) -> None:
+        check = getattr(self, 'installation_check', None)
+        if check:
+            check(axes)
         if not self.initialized:
             raise MotionError('initialize the controller before motion')
         if self.stopped:
@@ -298,7 +305,7 @@ class ZmotionMotionController:
             self.link.set_home_wait(index, params.home_wait)
             self.link.set_fs_limit(index, params.fs_limit)
             self.link.set_rs_limit(index, params.rs_limit)
-        self.axis_params = dict(axis_params)
+        self.axis_params.update(axis_params)
 
     def read_axis_parameters(self) -> dict[str, dict[str, float]]:
         """Read the controller's current axis parameters, grouped per axis."""
@@ -312,6 +319,7 @@ class ZmotionMotionController:
                     self.axis_params[name].feedback_scale if name in self.axis_params else 1.0),
                 'atype': float(self.link.get_atype(index)),
                 'units': self.link.get_units(index),
+                'home_wait': float(self.link.get_home_wait(index)),
                 'speed': self.link.get_speed(index),
                 'accel': self.link.get_accel(index),
                 'decel': self.link.get_decel(index),
@@ -391,6 +399,7 @@ class ZmotionMotionController:
             self.homed_axes.discard(axis)
             self.homed = len(self.homed_axes) == len(self.axes)
             raise MotionError(f'homing failed on {axis}')
+        getattr(self, '_untrusted_home', set()).discard(axis)
         self.homed_axes.add(axis)
         self.homed = len(self.homed_axes) == len(self.axes)
         return self.read_position()
@@ -739,8 +748,10 @@ class ZmotionMotionController:
                 'status_fault': has_fault(status),
                 'stop_reason': stop_reason,
                 'stop_reason_text': describe_stop_reason(stop_reason),
-                'home_status': float(self.link.home_status(physical)),
-                'homed': self.link.home_status(physical) == 1,
+                'home_status': float(self.link.home_status(physical) == 1 and
+                                     name not in getattr(self, '_untrusted_home', set())),
+                'homed': (self.link.home_status(physical) == 1 and
+                          name not in getattr(self, '_untrusted_home', set())),
             }
             if detailed:
                 entry['enable'] = int(self.link.axis_enable(physical))

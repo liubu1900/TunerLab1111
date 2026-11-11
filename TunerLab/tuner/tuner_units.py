@@ -145,7 +145,7 @@ class TunerUnit:
         back from the commissioned controller.
         """
         params = default_axis_params(self.axis_count)
-        return {name: replace(value, datum_in=self.datum_in(name))
+        return {name: replace(value, datum_in=self.datum_in(name), home_output=self.op_base + self.axes.index(name))
                 for name, value in params.items()}
 
     # -- serialisation ---------------------------------------------------
@@ -254,3 +254,24 @@ def axis_map_text(unit: TunerUnit) -> str:
     """``X→0, Z1→1, Z2→2`` — the mapping shown next to the tuner selector."""
     return ', '.join(f'{name}→{number}'
                      for name, number in unit.axis_map().items())
+
+
+LAYOUT_LABELS = {'single_3': '单台三轴 Tuner', 'dual_3': '双台三轴 Tuner',
+                 'single_4': '单台四轴 Tuner'}
+
+
+def layout_units(layout: str) -> dict[str, TunerUnit]:
+    """The only supported installation topologies; axis mappings are immutable."""
+    if layout == 'dual_3':
+        return default_units()
+    if layout not in ('single_3', 'single_4'):
+        raise ValueError(f'unknown tuner layout: {layout!r}')
+    return {'tuner_1': TunerUnit(key='tuner_1', label='Tuner 1', axis_count=int(layout[-1]))}
+
+
+def validate_layout(layout: str, units: Mapping[str, TunerUnit]) -> None:
+    expected = layout_units(layout)
+    validate_units(units)
+    if set(units) != set(expected) or any(
+            units[k].axis_map() != expected[k].axis_map() for k in expected):
+        raise ValueError('Tuner 型号或轴号与设备组合不一致，请重新选择设备组合')

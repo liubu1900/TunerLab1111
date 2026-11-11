@@ -102,6 +102,7 @@ class StubLink:
 
 
 class StubController:
+    simulated = True
     """Minimal stand-in for the motion backend."""
 
     def __init__(self, link: StubLink):
@@ -149,7 +150,9 @@ class StubController:
                 for index, name in enumerate(TUNER_AXES)]
 
     def apply_axis_parameters(self, params):
-        self.axis_params = dict(params)
+        self.axis_params.update(params)
+        for name, value in params.items():
+            self.link.params[name].update(value.to_dict())
 
     def read_axis_parameters(self):
         return {name: dict(values) for name, values in self.link.params.items()}
@@ -161,6 +164,7 @@ class StubSession(HardwareSession):
     def __init__(self, store):
         super().__init__(store)
         self.link = StubLink()
+        self.set_layout('single_4')
         self.controller = StubController(self.link)
 
     @property
@@ -301,7 +305,9 @@ def test_motion_page_emergency_stop_latches(session, app):
 
 def test_parameter_page_reads_from_controller(session, app):
     page = AxisParameterPage(session)
+    session.connect()
     page.on_read()
+    assert page._live['X']['units'] == 2500.0
     table = page.table
     assert table.rowCount() == 4
     # X uses a pulse equivalent of 2500, the probe axes 10000.
@@ -314,6 +320,7 @@ def test_parameter_page_writes_to_controller_and_file(session, app):
     page = AxisParameterPage(session)
     session.connect()
     page.table.item(0, 3).setText('25')      # X speed
+    page.on_save()
     page.on_write()
     assert session.controller.axis_params['X'].speed == 25.0
     assert session.store.path.is_file()
