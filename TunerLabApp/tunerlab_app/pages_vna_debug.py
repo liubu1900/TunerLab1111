@@ -413,11 +413,18 @@ class VnaDebugPage(QWidget):
             return
         result = handlers.vna_apply_dialect(self.state, {'dialect': dialect})
         self._load_config()
+        if result.get('persisted'):
+            persist_note = '命令组合已写入设置文件，重启应用后自动生效。'
+        else:
+            persist_note = ('注意：未能写入设置文件'
+                            + (f'（{result.get("persist_error")}）'
+                               if result.get('persist_error') else '')
+                            + '，重启应用后需重新应用。')
         QMessageBox.information(
             self, '应用方言',
             '已固定以下 SCPI 命令，下次「连接并配置」直接使用：\n\n' +
             '\n'.join(f'{k} = {v}' for k, v in result['dialect'].items()) +
-            '\n\n注意：配置仅保存在内存中，重启应用后需重新应用。')
+            f'\n\n{persist_note}')
         self.report('已应用探测到的 SCPI 方言')
 
     def on_copy_report(self) -> None:

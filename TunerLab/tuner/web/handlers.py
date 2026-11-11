@@ -1779,12 +1779,34 @@ def vna_probe(state, body, *, should_stop=None, on_step=None):
     return result
 
 
+def _persist_vna_dialect(state, dialect: dict) -> tuple[bool, Optional[str]]:
+    """Store a pinned dialect in settings.json so it survives a restart.
+
+    Best effort: a session without a settings store (unit-test doubles, the
+    bare web console before the operator opened the hardware page) keeps the
+    in-memory behaviour and the caller reports it.
+    """
+    session = getattr(state, 'hw', None)
+    settings = getattr(session, 'settings', None)
+    store = getattr(session, 'store', None)
+    if settings is None or store is None:
+        return False, '当前会话没有设置文件，方言仅对本进程生效'
+    try:
+        settings.vna_dialect = dict(dialect)
+        store.save(settings)
+    except Exception as exc:  # noqa: BLE001 - never fail an apply over IO
+        return False, f'方言已应用，但写入设置文件失败：{exc}'
+    return True, None
+
+
 def vna_apply_dialect(state, body):
     """Pin the commands discovered by a probe for subsequent connections.
 
     ``body`` may carry an explicit ``dialect`` dict or a full probe ``result``
     (its ``suggested_dialect`` is used).  Unknown keys are dropped so a stale
-    report cannot inject arbitrary driver settings.
+    report cannot inject arbitrary driver settings.  The clean dict is also
+    written to the settings file (schema 5 ``vna_dialect``) so the verified
+    command set is reused after a restart without probing again.
     """
     raw = body.get('dialect')
     if raw is None and isinstance(body.get('result'), dict):
@@ -1796,8 +1818,10 @@ def vna_apply_dialect(state, body):
         controller = state.vna.get('controller')
         if controller is not None and hasattr(controller, 'apply_dialect'):
             controller.apply_dialect(clean)
+        persisted, persist_error = _persist_vna_dialect(state, clean)
     return {'dialect': clean, 'applied_to_active': bool(
-        controller is not None and getattr(controller, 'connected', False))}
+        controller is not None and getattr(controller, 'connected', False)),
+        'persisted': persisted, 'persist_error': persist_error}
 
 
 def vna_connect(state, body):

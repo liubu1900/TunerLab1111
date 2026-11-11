@@ -87,8 +87,11 @@ class AppState:
                 'vendor_key': 'auto',
                 'interface': 'tcpip',
                 'resource': 'GPIB0::17::INSTR',
-                #: SCPI commands pinned by the debug tool's probe (in-memory).
-                'dialect': {},
+                #: SCPI commands pinned by the debug tool's probe, seeded
+                #: from the settings file so a verified dialect survives a
+                #: restart (see ``TunerSettings.vna_dialect``).
+                'dialect': dict(
+                    getattr(self.hw.settings, 'vna_dialect', None) or {}),
                 'start_hz': 1e9, 'stop_hz': 20e9, 'points': 401,
                 'power_dbm': -10.0, 'ifbw_hz': 1000.0,
             },

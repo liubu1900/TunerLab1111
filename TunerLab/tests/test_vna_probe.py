@@ -265,6 +265,37 @@ def test_handler_connect_passes_pinned_dialect():
 
 
 # --------------------------------------------------------------------------- #
+# Dialect persistence (schema 5 vna_dialect)
+# --------------------------------------------------------------------------- #
+def test_handler_apply_dialect_persists_to_settings(tmp_path):
+    """An apply writes the pinned dialect into the settings file."""
+    from tuner.settings import SettingsStore
+
+    store = SettingsStore(tmp_path / 'settings.json')
+    session = SimpleNamespace(store=store, settings=store.load())
+    state = _state()
+    state.hw = session
+
+    result = handlers.vna_apply_dialect(state, {
+        'dialect': {'define_cmd': ':CALC1:PAR:DEF:EXT'}})
+    assert result['persisted'] is True
+    assert result['persist_error'] is None
+
+    reloaded = store.load()
+    assert reloaded.vna_dialect == {'define_cmd': ':CALC1:PAR:DEF:EXT'}
+
+
+def test_handler_apply_dialect_without_a_store_stays_in_memory():
+    """The bare web console has no settings store; apply must still work."""
+    state = _state()
+    result = handlers.vna_apply_dialect(state, {
+        'dialect': {'define_cmd': ':CALC1:PAR:DEF:EXT'}})
+    assert result['dialect'] == {'define_cmd': ':CALC1:PAR:DEF:EXT'}
+    assert result['persisted'] is False
+    assert result['persist_error']
+
+
+# --------------------------------------------------------------------------- #
 # CLI + Web console wiring
 # --------------------------------------------------------------------------- #
 def test_cli_script_is_a_thin_wrapper():

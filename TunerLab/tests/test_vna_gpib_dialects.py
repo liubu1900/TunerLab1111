@@ -214,3 +214,21 @@ def test_studio_wizard_uses_pinned_dialect_from_state():
         studio_bridge._build_vna(state, body, None, None)
     assert factory.call_args.kwargs['dialect'] == {
         'define_cmd': ':CALC1:PAR:DEF:EXT'}
+
+
+# --------------------------------------------------------------------------- #
+# The workshop N5224A probe (2026-11-11, GPIB0::16, fw A.09.90.19)
+# --------------------------------------------------------------------------- #
+def test_n5224a_autodetects_the_pna_profile():
+    idn = 'Agilent Technologies,N5224A,MY51441375,A.09.90.19'
+    assert V.detect_vendor(idn) == 'keysight_pna'
+
+
+def test_keysight_pna_profile_matches_the_verified_probe():
+    """The shipped defaults are the command set the probe accepted live."""
+    profile = V._VENDOR_PROFILES['keysight_pna']
+    assert profile['define_cmd'] == ':CALC1:PAR:DEF:EXT'   # DEF:EXT got +0
+    assert profile['fetch_mnemonic'] == 'SDATA'            # CALC1:DATA? SDATA
+    assert profile['power_cmd'] == ':SOUR1:POW:LEV'        # LEV form got +0
+    assert profile['ifbw_cmd'] == ':SENS1:BAND'
+    assert profile['trigger_cmd'] == ':INIT1:IMM'          # INIT:IMM timed out

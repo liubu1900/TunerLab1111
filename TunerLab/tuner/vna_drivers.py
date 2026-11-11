@@ -362,9 +362,15 @@ _VENDOR_PROFILES = {
     'keysight_pna': {   # PNA / PNA-X (N5247A, ...)
         # PNA creates *named* measurements with DEFine:EXTended; the plain
         # CALC1:PAR:DEF header is not defined on that command tree (-113).
+        # Verified live on the workshop's N5224A (firmware A.09.90.19,
+        # GPIB0::16::INSTR, probe run 2026-11-11): DEF:EXT accepted with
+        # +0, the ENA / SDEF / PAR:EXT / legacy forms all rejected.
         'define_cmd': ':CALC1:PAR:DEF:EXT',
         'fetch_mnemonic': 'SDATA',
-        'power_cmd': ':SOUR1:POW:LEV:IMM:AMPL',
+        # Same probe: SOUR1:POW:LEV and SOUR1:POW:LEV:IMM:AMPL were both
+        # accepted with +0 (LEVel is the default node under POWer on the
+        # PNA tree), so the shared ENA-style header works everywhere.
+        'power_cmd': ':SOUR1:POW:LEV',
         'ifbw_cmd': ':SENS1:BAND',
         'trigger_cmd': ':INIT1:IMM',
     },

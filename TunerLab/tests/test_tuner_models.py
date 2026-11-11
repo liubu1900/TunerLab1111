@@ -126,6 +126,50 @@ def test_the_settings_file_records_the_model(tmp_path):
     assert data['axis_count'] == 3
 
 
+def test_the_pinned_vna_dialect_survives_a_restart(tmp_path):
+    """Schema 5 stores the SCPI dialect pinned by the debug tool's probe."""
+    store = SettingsStore(tmp_path / 'settings.json')
+    settings = TunerSettings(axis_count=3)
+    settings.vna_dialect = {
+        'define_cmd': ':CALC1:PAR:DEF:EXT',
+        'fetch_mnemonic': 'SDATA',
+        'power_cmd': ':SOUR1:POW:LEV',
+        'ifbw_cmd': ':SENS1:BAND',
+        'trigger_cmd': ':INIT1:IMM',
+    }
+    store.save(settings)
+
+    loaded = store.load()
+    assert loaded.vna_dialect == settings.vna_dialect
+
+
+def test_a_stored_dialect_drops_unknown_keys(tmp_path):
+    """A stale or hand-edited file cannot inject arbitrary driver settings."""
+    store = SettingsStore(tmp_path / 'settings.json')
+    data = TunerSettings(axis_count=3).to_dict()
+    data['vna_dialect'] = {
+        'define_cmd': ':CALC1:PAR:DEF:EXT',
+        'evil_key': 'drop me',
+    }
+    store.path.write_text(json.dumps(data), encoding='utf-8')
+
+    loaded = store.load()
+    assert loaded.vna_dialect == {'define_cmd': ':CALC1:PAR:DEF:EXT'}
+
+
+def test_a_schema4_file_loads_with_an_empty_dialect(tmp_path):
+    """Files written before schema 5 have no vna_dialect; that is not an error."""
+    store = SettingsStore(tmp_path / 'settings.json')
+    store.save(TunerSettings(axis_count=3))
+    data = json.loads(store.path.read_text(encoding='utf-8'))
+    data['schema_version'] = 4
+    data.pop('vna_dialect')
+    store.path.write_text(json.dumps(data), encoding='utf-8')
+
+    loaded = store.load()
+    assert loaded.vna_dialect == {}
+
+
 def test_an_unsupported_model_is_rejected():
     with pytest.raises(ValueError):
         TunerSettings(axis_count=5)

@@ -28,6 +28,11 @@ and ``axes_by_unit`` keeps an independent set of axis parameters per tuner so
 tuning the left tuner never changes the right one. Files written by schema 1–3
 are migrated on load: their ``axes`` become the left tuner's parameters and the
 origin-input base is inferred from the stored ``X`` channel.
+
+Schema 5 adds ``vna_dialect``: the SCPI command set pinned by the SCPI debug
+tool's probe for the real analyzer (e.g. the workshop's GPIB N5244/N5224), so a
+verified dialect survives a restart instead of being re-negotiated with a
+handful of ``-113`` probes on every connect.
 """
 from __future__ import annotations
 
@@ -50,7 +55,7 @@ __all__ = ['ConnectionSettings', 'TunerSettings', 'SettingsStore',
            'SCHEMA_VERSION']
 
 #: Bumped when the on-disk layout changes incompatibly.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 #: Factory IP of a Zmotion controller.
 DEFAULT_IP = '192.168.0.11'
@@ -117,6 +122,13 @@ class TunerSettings:
     #: tuner's view of this mapping; :meth:`TunerSettings.unit_axes` is the
     #: authoritative accessor.
     axes_by_unit: dict[str, dict[str, AxisParams]] = field(default_factory=dict)
+
+    # -- schema 5: pinned SCPI dialect of the real VNA ---------------------
+    #: Command set discovered by the SCPI debug tool's probe and pinned so
+    #: later VNA connections skip the dialect negotiation.  Keys are a
+    #: subset of ``vna_drivers.DIALECT_FIELDS``; unknown keys are dropped on
+    #: load, so a stale probe report cannot inject arbitrary settings.
+    vna_dialect: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.mode = str(self.mode).strip().lower()
@@ -277,6 +289,7 @@ class TunerSettings:
             'active_unit': self.active_unit,
             'units': {key: unit.to_dict() for key, unit in self.units.items()},
             'axes_by_unit': per_unit,
+            'vna_dialect': dict(self.vna_dialect),
         }
 
     @classmethod
@@ -328,7 +341,23 @@ class TunerSettings:
 
         return cls(connection=connection, mode=mode, axis_count=axis_count,
                    axes=dict(per_unit[active]), active_unit=active,
-                   units=units, axes_by_unit=per_unit)
+                   units=units, axes_by_unit=per_unit,
+                   vna_dialect=_clean_dialect(data.get('vna_dialect')))
+
+
+def _clean_dialect(raw: Any) -> dict[str, str]:
+    """Sanitise a stored ``vna_dialect`` mapping.
+
+    Only the five driver-consumed keys survive, and only with non-empty
+    string values -- everything a stale or hand-edited file adds is dropped
+    before it can reach the VNA driver.  ``DIALECT_FIELDS`` is imported
+    lazily: the settings module must stay importable without numpy.
+    """
+    if not isinstance(raw, Mapping):
+        return {}
+    from .vna_drivers import DIALECT_FIELDS  # noqa: PLC0415 - avoid import cycle
+    return {str(key): str(value).strip() for key, value in raw.items()
+            if key in DIALECT_FIELDS and str(value or '').strip()}
 
 
 def _migrate_default_units(stored_axes: Any) -> dict[str, TunerUnit]:
