@@ -13,14 +13,13 @@
 
 ## Windows下载与运行
 
-- `TunerLab-0.5.14-Setup.exe`：当前用户安装程序。
 - `TunerLab-0.5.14-win64.zip`：便携版，完整解压后运行其中的 `TunerLab.exe`，保留 `_internal` 目录。
-- `TunerLab-0.5.14-SHA256SUMS.txt`：上述文件的SHA256校验值。
+- `TunerLab-0.5.14-SHA256SUMS.txt`：便携ZIP的SHA256校验值。
 
 请在配置备份后升级；旧版安装包不会自动取得源码修复。GPIB/82357B仍需安装Keysight IO Libraries Suite，N5224A地址为 `GPIB0::16::INSTR`，不可沿用默认17。
 
 ## 验证范围
 
-0.5.14本地完整回归694项通过、9项跳过，桌面17页启动检查通过；包含新增Windows运行时打包核对用例。GitHub发布作业仅在Linux及Windows测试、Windows EXE启动、SDK加载和压缩包校验均成功后上传构建产物。
+0.5.14本地完整回归694项通过、9项跳过，桌面17页启动检查通过；包含新增Windows运行时打包核对用例。Windows发版沿用已有PyInstaller便携ZIP方式；仅在Windows测试、冻结EXE启动、SDK加载和压缩包校验成功后上传产物。
 
 没有在本次会话执行真实运动控制器、N5224A或RF准确度验收。现场仍需按 [N5224A预检](../../TunerLab/docs/N5224A_GPIB_PRECHECK.md) 和 [Tuner验收记录](TUNER_CONFIGURATION_ACCEPTANCE.md) 核对接线及实际读回。

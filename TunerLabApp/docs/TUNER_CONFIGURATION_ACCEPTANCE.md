@@ -68,6 +68,6 @@
 
 本次会话记录：`/workspace/layout-review/delivery-tests.xml`、`delivery-tests.log`、`delivery-smoke.log`；三页渲染截图在同目录 `comm.png`、`motion.png`、`params.png`。
 
-Windows现场还需完成：厂商DLL/VISA加载、三种组合实际接线和控制器轴数核对、各轴参数读回、原点输入/输出及极性确认、受控低速动作、断线重连及停止响应；这些检查不能由模拟链路替代。上述为发版前的本地辅助验证；0.5.14的Windows构建及安装检查由GitHub Actions执行，只有成功后才发布EXE/ZIP。实机验证仍需现场完成。
+Windows现场还需完成：厂商DLL/VISA加载、三种组合实际接线和控制器轴数核对、各轴参数读回、原点输入/输出及极性确认、受控低速动作、断线重连及停止响应；这些检查不能由模拟链路替代。上述为发版前的本地辅助验证；0.5.14的Windows构建及冻结EXE启动检查由GitHub Actions执行，只有成功后才发布EXE/ZIP。实机验证仍需现场完成。
 
 另已依据用户提供的 `pnahelp.chm` 修订N5224A触发等指令，见 [离线手册核对](../../TunerLab/docs/N5224A_OFFLINE_MANUAL_AUDIT.md) 和 [现场预检步骤](../../TunerLab/docs/N5224A_GPIB_PRECHECK.md)。

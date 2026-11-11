@@ -49,4 +49,4 @@ PNA必需配置、测量选择和数据查询检查错误队列，失败返回�
 
 离线手册复核阶段的本地完整验证：**689 passed、9 skipped、0 failures、0 errors**；桌面smoke构建17页并退出0。9项跳过为Windows厂商DLL检查及8项默认关闭的实机测试。记录位于 `/workspace/layout-review/delivery-tests.xml`、`delivery-tests.log`、`delivery-smoke.log`；这些是Linux辅助结果。
 
-修复随 **0.5.14** 发版；GitHub Actions仅在Windows构建、SDK加载及安装启动检查成功后发布新EXE/ZIP，见 [版本说明](../../TunerLabApp/docs/RELEASE_0.5.14.md)。**已有0.5.13安装包不会自动包含这些修复**；现场需使用0.5.14产物或包含本次修改的源码。
+修复随 **0.5.14** 发版；GitHub Actions仅在Windows构建、SDK加载及冻结EXE启动检查成功后发布新EXE/ZIP，见 [版本说明](../../TunerLabApp/docs/RELEASE_0.5.14.md)。**已有0.5.13安装包不会自动包含这些修复**；现场需使用0.5.14产物或包含本次修改的源码。

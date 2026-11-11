@@ -17,7 +17,7 @@
 
 ## Windows下载
 
-[GitHub Releases](https://github.com/liubu1900/TunerLab1111/releases) 提供当前用户安装程序 `TunerLab-0.5.14-Setup.exe`、便携包 `TunerLab-0.5.14-win64.zip` 和SHA256清单。
+[GitHub Releases](https://github.com/liubu1900/TunerLab1111/releases) 提供便携包 `TunerLab-0.5.14-win64.zip` 和SHA256清单。
 便携包须完整解压，保留 `_internal` 目录，再启动 `TunerLab.exe`。GPIB/82357B另外需要Keysight IO Libraries Suite；用户现场N5224A地址为 `GPIB0::16::INSTR`。
 
 ## 从源码启动桌面端
@@ -68,7 +68,7 @@ cd TunerLabApp
 
 生成 `TunerLabApp/dist/TunerLab/TunerLab.exe`。SDK所需VC++2010 SP1 x64运行时应通过Microsoft官方安装器安装；`windows_runtime.py`将实际依赖MSVCR100.dll复制到包内并校验x64架构及SDK加载，不连接控制器。使用Inno Setup 6.5及以上编译 `packaging/installer.iss` 生成简体中文安装程序。
 
-GitHub Actions的 **Desktop validation and Windows package** 会在Linux/Windows运行测试，构建Windows EXE、安装程序及便携ZIP，检查安装后启动和SDK加载，并校验ZIP文件。产物保留为Actions artifact（14天）；推送与应用版本一致的 `v*` 标签时，仅在全部验证通过后自动创建GitHub Release并上传安装器、ZIP和SHA256清单。
+GitHub Actions的 **Desktop validation and Windows package** 沿用PyInstaller便携包流程，在Windows运行测试，构建EXE及ZIP，检查冻结EXE启动和SDK加载，并校验ZIP文件。产物保留为Actions artifact（14天）；推送与应用版本一致的 `v*` 标签时，仅在全部验证通过后自动创建GitHub Release并上传ZIP和SHA256清单。
 
 ### 一键发版
 
