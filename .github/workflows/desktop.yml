@@ -5,8 +5,13 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   validate:
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -20,16 +25,30 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}/TunerLabApp
     steps:
       - uses: actions/checkout@v4
-      - name: Install headless Qt libraries
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libopengl0 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install pinned dependencies
         run: python -m pip install -r TunerLab/requirements-tested.txt -e './TunerLab[test]'
+      - name: Ensure headless Qt libraries
+        if: runner.os == 'Linux'
+        shell: python
+        run: |
+          import subprocess
+          import sys
+          probe = subprocess.run([sys.executable, '-c', 'from PySide6.QtWidgets import QApplication'],
+                                 capture_output=True, text=True)
+          if probe.returncode:
+              print(probe.stderr, flush=True)
+              result = subprocess.run(
+                  ['sudo', 'apt-get', 'install', '-y', '--no-install-recommends',
+                   'libegl1', 'libopengl0', 'libgl1', 'libxkbcommon0', 'libfontconfig1', 'libdbus-1-3'],
+                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf-8', errors='replace')
+              print(result.stdout, flush=True)
+              if result.returncode:
+                  detail = result.stdout[-6000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print('::error title=Qt system dependencies failed::' + detail, flush=True)
+              sys.exit(result.returncode)
       - name: Install and check Windows motion runtime
         if: runner.os == 'Windows'
         shell: pwsh
@@ -147,17 +166,34 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: always() && !cancelled() && startsWith(github.ref, 'refs/tags/v')
     needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
+      - name: Find successful build of this exact commit
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list --workflow desktop.yml --commit "$GITHUB_SHA" \
+            --branch main --event push --status success --json databaseId --jq '.[0].databaseId')
+          if [[ -z "$run_id" || "$run_id" == null ]]; then
+            echo '::error::No successful main-branch build exists for this tag commit'
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
           name: TunerLab-windows
           path: release-assets
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.build.outputs.run_id }}
       - name: Publish verified Windows release
         env:
           GH_TOKEN: ${{ github.token }}
