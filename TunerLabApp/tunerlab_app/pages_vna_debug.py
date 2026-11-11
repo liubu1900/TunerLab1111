@@ -222,6 +222,9 @@ class VnaDebugPage(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
+        # The shell wraps this page in a QScrollArea; without an explicit
+        # minimum the table collapses to a few rows at 1140x720.
+        self.table.setMinimumHeight(300)
         header = self.table.horizontalHeader()
         for col in (2, 3, 4, 5):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
@@ -240,6 +243,7 @@ class VnaDebugPage(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         self.report_view = QPlainTextEdit()
         self.report_view.setReadOnly(True)
+        self.report_view.setMinimumHeight(300)
         self.report_view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.report_view.setFont(px_font(11.5, 'regular'))
         self.report_view.setPlainText('尚未运行探测。')
