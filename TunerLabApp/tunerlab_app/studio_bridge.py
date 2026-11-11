@@ -23,7 +23,7 @@ from __future__ import annotations
 from tuner.motion import MotionPlanner
 from tuner.operation_log import operation_log
 from tuner.vna import MockVNAController
-from tuner.vna_drivers import create_vna
+from tuner.vna_drivers import DEFAULT_GPIB_RESOURCE, create_vna
 from tuner.web import handlers
 from tuner.web.state import DEFAULT_FREQUENCIES
 from tuner.zmotion_motion import build_tuner_config
@@ -128,10 +128,13 @@ def _build_vna(state, body: dict, config, motion):
         host = str(body.get('vna_ip') or '192.168.2.111')
         port = int(body.get('vna_port', 5025))
         timeout = float(body.get('vna_timeout_ms', 10000)) / 1000.0
+        interface = str(body.get('vna_interface') or 'tcpip').strip().lower()
+        resource = str(body.get('vna_resource') or DEFAULT_GPIB_RESOURCE).strip()
         start = float(body.get('vna_start_hz', 1e9))
         stop = float(body.get('vna_stop_hz', 20e9))
         points = int(body.get('vna_points', 401))
-        vna = create_vna(vendor, host, port, timeout)
+        vna = create_vna(vendor, host, port, timeout,
+                         interface=interface, resource=resource)
         vna.connect()
         vna.set_sweep(start, stop, points)
         return vna, 'real'

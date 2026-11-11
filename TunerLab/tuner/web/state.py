@@ -71,9 +71,10 @@ class AppState:
             'point_plan': 'cartesian',
         }
 
-        # --- VNA (real vector network analyzer, TCP/IP SCPI) -------------
+        # --- VNA (real vector network analyzer, TCP/IP or VISA GPIB) ------
         # Separate instrument from the Zmotion motion controller: a VNA is a
-        # different box on the LAN and is driven by tuner.vna_drivers.TCPVNA.
+        # different box on the LAN / GPIB bus and is driven by
+        # tuner.vna_drivers.TCPVNA over a pluggable transport.
         self.vna_lock = threading.RLock()
         self.vna: dict[str, Any] = {
             'controller': None,
@@ -84,6 +85,8 @@ class AppState:
             'config': {
                 'host': '192.168.2.111', 'port': 5025, 'timeout_ms': 10000,
                 'vendor_key': 'auto',
+                'interface': 'tcpip',
+                'resource': 'GPIB0::17::INSTR',
                 'start_hz': 1e9, 'stop_hz': 20e9, 'points': 401,
                 'power_dbm': -10.0, 'ifbw_hz': 1000.0,
             },

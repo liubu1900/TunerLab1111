@@ -429,6 +429,8 @@ $('st-init').onclick = async () => {
   const useReal = $('st-vna-real').checked;
   if (useReal) {
     body.vna_vendor = $('st-vna-vendor').value;
+    body.vna_interface = $('st-vna-interface').value;
+    body.vna_resource = $('st-vna-resource').value.trim();
     body.vna_ip = $('st-vna-ip').value.trim();
     body.vna_start_hz = parseFloat($('st-vna-start').value);
     body.vna_stop_hz = parseFloat($('st-vna-stop').value);
@@ -824,6 +826,41 @@ $('st-validate').onclick = async () => {
 };
 
 /* ------------------------------------------------------- VNA control */
+function syncVnaInterface() {
+  const gpib = $('vna-interface').value === 'gpib';
+  ['vna-ip-label', 'vna-ip', 'vna-port-label', 'vna-port'].forEach((id) => {
+    $(id).style.display = gpib ? 'none' : '';
+  });
+  ['vna-resource-label', 'vna-resource', 'vna-visa-detect'].forEach((id) => {
+    $(id).style.display = gpib ? '' : 'none';
+  });
+}
+$('vna-interface').onchange = syncVnaInterface;
+
+function syncStVnaInterface() {
+  const gpib = $('st-vna-interface').value === 'gpib';
+  $('st-vna-ip-label').style.display = gpib ? 'none' : '';
+  $('st-vna-ip').style.display = gpib ? 'none' : '';
+  $('st-vna-resource-label').style.display = gpib ? '' : 'none';
+  $('st-vna-resource').style.display = gpib ? '' : 'none';
+}
+$('st-vna-interface').onchange = syncStVnaInterface;
+
+$('vna-visa-detect').onclick = async () => {
+  const r = await api('GET', '/api/vna/visa_resources');
+  if (!r.ok) {
+    showMsg($('vna-msg'), 'VISA 检测失败: ' + r.error, 'error');
+    return;
+  }
+  const found = (r.data.resources || []).filter((x) => x.toUpperCase().startsWith('GPIB'));
+  if (found.length) {
+    $('vna-resource').value = found[0];
+    showMsg($('vna-msg'), 'VISA 后端 ' + (r.data.backend || '') + ' · GPIB 资源: ' + found.join(', '), 'ok');
+  } else {
+    showMsg($('vna-msg'), 'VISA 后端 ' + (r.data.backend || '') + ' 未发现 GPIB 资源，请检查 82357B 与仪器电源', 'error');
+  }
+};
+
 async function loadVnaVendors() {
   const r = await api('GET', '/api/vna/vendors');
   if (!r.ok) return;
@@ -845,6 +882,9 @@ async function loadVnaStatus() {
   $('vna-disconnect').disabled = !d.connected;
   $('vna-connect').disabled = d.connected;
   const cfg = d.config || {};
+  if (cfg.interface) $('vna-interface').value = cfg.interface;
+  if (cfg.resource) $('vna-resource').value = cfg.resource;
+  syncVnaInterface();
   if (cfg.host) $('vna-ip').value = cfg.host;
   if (cfg.port) $('vna-port').value = cfg.port;
   if (cfg.timeout_ms) $('vna-timeout').value = cfg.timeout_ms;
@@ -859,8 +899,10 @@ async function loadVnaStatus() {
 function vnaConfigBody() {
   return {
     vendor_key: $('vna-vendor').value,
+    interface: $('vna-interface').value,
     host: $('vna-ip').value.trim(),
     port: parseInt($('vna-port').value, 10),
+    resource: $('vna-resource').value.trim(),
     timeout_ms: parseInt($('vna-timeout').value, 10),
     start_hz: parseFloat($('vna-start').value),
     stop_hz: parseFloat($('vna-stop').value),
@@ -1349,6 +1391,8 @@ $('p2-au-run').onclick = async () => {
 
 /* ------------------------------------------------------------- bootstrap */
 syncMotionSource();
+syncVnaInterface();
+syncStVnaInterface();
 updateGridCount();
 loadVnaVendors();
 loadHwSettings();

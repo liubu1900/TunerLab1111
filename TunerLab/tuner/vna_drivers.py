@@ -1,7 +1,14 @@
-"""Multi-vendor vector network analyzer drivers over TCP/IP (SCPI on socket).
+"""Multi-vendor vector network analyzer drivers over TCP/IP or GPIB (SCPI).
 
-Supported instruments (all controlled via raw TCP socket SCPI, default port 5025,
-no VISA runtime / vendor driver required):
+Two transports share the same driver and the same vendor profiles:
+
+* ``tcpip`` -- raw SCPI on a TCP socket (default port 5025, stdlib only).
+* ``gpib``  -- SCPI over VISA, e.g. ``GPIB0::17::INSTR`` through an
+  Agilent/Keysight 82357B USB-GPIB adapter. Requires an IVI-VISA runtime
+  (Keysight IO Libraries Suite) plus PyVISA, both imported lazily so the
+  TCP/IP path stays dependency-free.
+
+Supported vendor families (the interface only changes *how* SCPI travels):
 
 | key                | vendor / family                         | example models            |
 |--------------------|-----------------------------------------|---------------------------|
@@ -17,13 +24,11 @@ small set of commands that differ between families (measurement definition,
 fetch mnemonic, power / IF-BW headers, trigger). A command-trial helper makes
 each divergent operation fall back to the next candidate so a slightly different
 firmware still works on first contact.
-
-The module is intentionally dependency-free (standard library ``socket`` only)
-so it runs on the same Windows host that carries the Zmotion link, and so the
-calibration studio can use a real VNA instead of the synthetic one.
 """
 from __future__ import annotations
 
+import os
+import re
 import socket
 import threading
 import time
@@ -36,7 +41,131 @@ from . import vna_calibration
 
 
 # --------------------------------------------------------------------------- #
-# Transport: a tiny SCPI-over-TCP client
+# Interfaces and VISA resource names
+# --------------------------------------------------------------------------- #
+INTERFACE_TCPIP = 'tcpip'
+INTERFACE_GPIB = 'gpib'
+
+INTERFACE_LABELS = {
+    INTERFACE_TCPIP: 'TCP/IP（SCPI socket，端口 5025）',
+    INTERFACE_GPIB: 'GPIB（VISA / Agilent 82357B USB-GPIB）',
+}
+
+DEFAULT_GPIB_BOARD = 0
+DEFAULT_GPIB_ADDRESS = 17
+DEFAULT_GPIB_RESOURCE = 'GPIB0::17::INSTR'
+
+#: ``GPIB0::17::INSTR`` or ``GPIB0::17::0::INSTR`` (secondary address).
+_GPIB_RESOURCE_RE = re.compile(
+    r'^GPIB(\d+)::(\d+)(?:::(\d+))?::INSTR$', re.IGNORECASE)
+
+
+def gpib_resource(board: int = DEFAULT_GPIB_BOARD,
+                  address: int = DEFAULT_GPIB_ADDRESS,
+                  secondary: Optional[int] = None) -> str:
+    """Build a VISA GPIB resource name, validating the IEEE-488 address range."""
+    b, a = int(board), int(address)
+    if not 0 <= b <= 15:
+        raise ValueError('GPIB 板号必须在 0–15 之间')
+    if not 0 <= a <= 30:
+        raise ValueError('GPIB 主地址必须在 0–30 之间（31 为广播地址，不可用于仪器）')
+    if secondary is None:
+        return f'GPIB{b}::{a}::INSTR'
+    s = int(secondary)
+    if not 0 <= s <= 30:
+        raise ValueError('GPIB 副地址必须在 0–30 之间')
+    return f'GPIB{b}::{a}::{s}::INSTR'
+
+
+def normalise_gpib_resource(value: str | int,
+                            board: int = DEFAULT_GPIB_BOARD) -> str:
+    """Accept either a bare primary address or a full VISA resource string."""
+    text = str(value if value is not None else '').strip()
+    if not text:
+        raise ValueError('请填写 GPIB 地址（如 17）或 VISA 资源串（如 GPIB0::17::INSTR）')
+    if text.isdigit():
+        return gpib_resource(board, int(text))
+    m = _GPIB_RESOURCE_RE.match(text)
+    if m:
+        return gpib_resource(m.group(1), m.group(2), m.group(3))
+    raise ValueError(
+        f'无法识别的 GPIB 资源串：{text!r}。'
+        '请填写主地址（如 17）或完整 VISA 资源名（如 GPIB0::17::INSTR）。'
+        '注意 GPIB 不是 IP 地址，也不需要填端口。')
+
+
+#: ``os.add_dll_directory`` handles must stay referenced or the search path
+#: entry is released by the garbage collector.
+_VISA_DLL_HANDLES: list = []
+
+
+def _prepare_visa_dll_paths() -> None:
+    """Make the Keysight/Agilent IO Libraries DLLs loadable for PyVISA.
+
+    The installer adds its ``bin`` directory to the system PATH, but processes
+    started before the installation (a long-running desktop app, an IDE, a
+    service) keep the old PATH.  Since Python 3.8, dependent DLLs are also no
+    longer searched via PATH at all, so ``os.add_dll_directory`` is needed even
+    in a fresh shell.  Without this, ``ResourceManager()`` fails with
+    ``VI_ERROR_LIBRARY_NFOUND`` although ``visa32.dll`` is present.
+    """
+    if os.name != 'nt' or not hasattr(os, 'add_dll_directory'):
+        return
+    drive = os.environ.get('SystemDrive', 'C:')
+    candidates = [
+        rf'{drive}\Program Files\Keysight\IO Libraries Suite\bin',
+        rf'{drive}\Program Files (x86)\Keysight\IO Libraries Suite\bin',
+        rf'{drive}\Program Files (x86)\Agilent\IO Libraries Suite\bin',
+        rf'{drive}\Program Files\IVI Foundation\VISA\Win64\bin',
+        rf'{drive}\Program Files (x86)\IVI Foundation\VISA\WinNT\bin',
+    ]
+    paths = os.environ.get('PATH', '').split(os.pathsep)
+    for directory in candidates:
+        if not os.path.isdir(directory):
+            continue
+        try:
+            _VISA_DLL_HANDLES.append(os.add_dll_directory(directory))
+        except (OSError, ValueError):  # pragma: no cover - Windows-only quirks
+            pass
+        if directory not in paths:
+            paths.insert(0, directory)
+    os.environ['PATH'] = os.pathsep.join(paths)
+
+
+def visa_resources() -> dict:
+    """Probe the installed VISA runtime: backend path + discoverable resources.
+
+    Used by the UI's "检测 VISA 资源" button so the operator can read the real
+    GPIB address instead of guessing it.  Raises a readable RuntimeError when
+    the Agilent/Keysight IO Libraries runtime is missing.
+    """
+    try:
+        import pyvisa
+    except ImportError as exc:  # pragma: no cover - dependency is declared
+        raise RuntimeError('未安装 PyVISA，请在项目虚拟环境中执行 pip install pyvisa') from exc
+    _prepare_visa_dll_paths()
+    try:
+        manager = pyvisa.ResourceManager()
+    except Exception as exc:  # noqa: BLE001 - VISA backends raise varied errors
+        raise RuntimeError(
+            '未找到 VISA 运行时。Agilent/Keysight 82357B USB-GPIB 卡在 Windows 上'
+            '需要安装 Keysight IO Libraries Suite（提供 visa32.dll 驱动）；'
+            f'安装后重启应用再试。原始错误：{exc}') from exc
+    try:
+        lib = getattr(getattr(manager, 'visalib', None), 'library_path', None)
+        return {
+            'backend': str(lib or type(manager).__name__),
+            'resources': [str(r) for r in manager.list_resources()],
+        }
+    finally:
+        try:
+            manager.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+# --------------------------------------------------------------------------- #
+# Transport 1: a tiny SCPI-over-TCP client
 # --------------------------------------------------------------------------- #
 class SocketSCPI:
     """SCPI client speaking over a raw TCP socket (VNA default port 5025)."""
@@ -99,6 +228,99 @@ class SocketSCPI:
     def query(self, cmd: str) -> str:
         self.write(cmd)
         return self.read()
+
+
+# --------------------------------------------------------------------------- #
+# Transport 2: SCPI over VISA GPIB (Agilent/Keysight 82357B, NI GPIB, ...)
+# --------------------------------------------------------------------------- #
+class VISASCPI:
+    """SCPI client over a VISA GPIB session.
+
+    Implements exactly the contract :class:`SocketSCPI` exposes -- ``open``,
+    ``close``, ``connected``, ``write``, ``read``, ``query`` -- so :class:`TCPVNA`
+    and all vendor profiles work unchanged over either interface.
+
+    GPIB messages are terminated by the EOI line, not a newline, so both
+    ``read_termination`` and ``write_termination`` default to ``''`` (VISA
+    asserts EOI on the last byte of a write).  Instruments that only end their
+    responses with LF can be handled by passing ``read_termination='\\n'``.
+
+    ``resource_manager`` may be injected in tests; a manager created here is
+    closed together with the session.
+    """
+
+    def __init__(self, resource: str = DEFAULT_GPIB_RESOURCE,
+                 timeout: float = 10.0,
+                 read_termination: str = '', write_termination: str = '',
+                 resource_manager=None):
+        self.resource = normalise_gpib_resource(resource)
+        self.timeout = float(timeout)
+        self.read_termination = read_termination
+        self.write_termination = write_termination
+        self._manager = resource_manager
+        self._owns_manager = resource_manager is None
+        self.instrument = None
+
+    def open(self) -> None:
+        if self.instrument is not None:
+            self.close()
+        try:
+            if self._manager is None:
+                import pyvisa
+                _prepare_visa_dll_paths()
+                self._manager = pyvisa.ResourceManager()
+            inst = self._manager.open_resource(self.resource)
+        except ImportError as exc:
+            raise RuntimeError('未安装 PyVISA，请执行 pip install pyvisa') from exc
+        except Exception as exc:  # noqa: BLE001 - backends raise varied errors
+            raise RuntimeError(
+                f'无法打开 GPIB 资源 {self.resource}：{exc}。'
+                '请确认已安装 Keysight IO Libraries Suite（Agilent 82357B 驱动）、'
+                '仪器已上电、GPIB 地址正确；可点「检测 VISA」核对实际资源名。') from exc
+        try:
+            inst.timeout = max(500, int(self.timeout * 1000))
+            inst.read_termination = self.read_termination
+            inst.write_termination = self.write_termination
+        except Exception:  # noqa: BLE001
+            try:
+                inst.close()
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+        self.instrument = inst
+
+    def close(self) -> None:
+        inst, self.instrument = self.instrument, None
+        if inst is not None:
+            try:
+                inst.close()
+            except Exception:  # noqa: BLE001
+                pass
+        if self._owns_manager:
+            manager, self._manager = self._manager, None
+            if manager is not None:
+                try:
+                    manager.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    @property
+    def connected(self) -> bool:
+        return self.instrument is not None
+
+    def _require(self):
+        if self.instrument is None:
+            raise RuntimeError('VNA not connected')
+        return self.instrument
+
+    def write(self, cmd: str) -> None:
+        self._require().write(cmd)
+
+    def read(self) -> str:
+        return self._require().read().strip()
+
+    def query(self, cmd: str) -> str:
+        return self._require().query(cmd).strip()
 
 
 # --------------------------------------------------------------------------- #
@@ -183,12 +405,14 @@ VENDOR_LABELS = {
 # The driver
 # --------------------------------------------------------------------------- #
 class TCPVNA:
-    """A TCP/IP SCPI session to any supported VNA.
+    """A SCPI session to any supported VNA, over TCP/IP or VISA GPIB.
 
     Usage::
 
         vna = create_vna('auto', '192.168.2.111', 5025, timeout=10)
-        vna.connect()                 # opens socket, reads IDN, builds S-params
+        vna = create_vna('auto', '', 5025, timeout=10, interface='gpib',
+                         resource='GPIB0::17::INSTR')
+        vna.connect()                 # opens transport, reads IDN, builds S-params
         vna.set_sweep(1e9, 20e9, 401)
         vna.set_power(-10)
         m = vna.measure()             # -> Measurement(f, 2x2 S complex)
@@ -198,12 +422,18 @@ class TCPVNA:
     S_PARAMS = ('S11', 'S21', 'S12', 'S22')
 
     def __init__(self, host: str, port: int = SocketSCPI.DEFAULT_PORT,
-                 timeout: float = 10.0, vendor_key: str = 'auto'):
+                 timeout: float = 10.0, vendor_key: str = 'auto', *,
+                 transport=None, resource: Optional[str] = None,
+                 interface: str = INTERFACE_TCPIP):
         self.host = host
         self.port = int(port)
         self.timeout = float(timeout)
         self.vendor_key = vendor_key if vendor_key else 'auto'
-        self.transport = SocketSCPI(host, port, timeout)
+        self.interface = interface
+        self.transport = (transport if transport is not None
+                          else SocketSCPI(host, port, timeout))
+        #: Provenance string stored in every Measurement (host:port or VISA name).
+        self.resource = resource or f'{self.host}:{self.port}'
         self.idn: Optional[str] = None
         self.last_error: Optional[str] = None
 
@@ -247,6 +477,11 @@ class TCPVNA:
     def connected(self) -> bool:
         return self.transport.connected
 
+    def query(self, cmd: str) -> str:
+        """Interface-neutral SCPI query (used by the IDN button)."""
+        with self.lock:
+            return self.transport.query(cmd)
+
     def _apply_profile(self) -> None:
         prof = _VENDOR_PROFILES.get(self.vendor_key, _VENDOR_PROFILES['generic'])
         self._define_cmd = prof['define_cmd']
@@ -276,8 +511,11 @@ class TCPVNA:
     def read_errors(self) -> list[str]:
         errs: list[str] = []
         for _ in range(12):
-            r = self.transport.query(':SYST:ERR?').strip()
-            if r.startswith('+0') or r.startswith('0,'):
+            try:
+                r = self.transport.query(':SYST:ERR?').strip()
+            except Exception:  # noqa: BLE001 - older GPIB gear may lack a queue
+                break
+            if r.startswith('+0') or r.startswith('0,') or not r:
                 break
             errs.append(r)
             if len(errs) >= 12:
@@ -384,6 +622,16 @@ class TCPVNA:
                     continue
                 if resp.startswith('1'):
                     return True
+            # Some GPIB instruments (notably older HP/Agilent boxes) reject a
+            # compound message that mixes a trigger with a query.  Split it into
+            # a write plus a separate *OPC? before giving up.
+            try:
+                self.transport.write(self._trigger_cmd)
+                resp = self.transport.query('*OPC?').strip().lstrip('+').lstrip()
+                if resp.startswith('1'):
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
             raise RuntimeError('trigger did not confirm completion (*OPC? != 1)')
 
     def _fetch_trace(self) -> np.ndarray:
@@ -430,7 +678,8 @@ class TCPVNA:
         return Measurement(
             f.copy(), s, False,
             {'source': 'physical_vna', 'idn': self.idn,
-             'resource': f'{self.host}:{self.port}', 'vendor': self.vendor_key,
+             'resource': self.resource, 'interface': self.interface,
+             'vendor': self.vendor_key,
              'calibration_validated': bool(cal.verified),
              'calibration_method': cal.method,
              'calibration_timestamp': cal.timestamp,
@@ -443,9 +692,33 @@ class TCPVNA:
 
 
 def create_vna(vendor_key: str, host: str, port: int = SocketSCPI.DEFAULT_PORT,
-               timeout: float = 10.0) -> TCPVNA:
-    """Factory: build a :class:`TCPVNA` for the given vendor key / host."""
+               timeout: float = 10.0, *, interface: str = INTERFACE_TCPIP,
+               resource: Optional[str] = None,
+               gpib_board: int = DEFAULT_GPIB_BOARD,
+               gpib_address: int = DEFAULT_GPIB_ADDRESS,
+               resource_manager=None) -> TCPVNA:
+    """Factory: build a :class:`TCPVNA` on the requested interface.
+
+    ``interface='tcpip'`` keeps the original socket behaviour (and the original
+    positional signature, so every existing caller stays valid).
+    ``interface='gpib'`` opens ``resource`` (default ``GPIB0::17::INSTR``) via
+    PyVISA; a bare ``gpib_address`` is accepted too.
+    """
+    iface = str(interface or INTERFACE_TCPIP).strip().lower()
+    if iface in (INTERFACE_GPIB, 'visa', 'gpib-visa', 'gpib_visa'):
+        target = normalise_gpib_resource(
+            resource if resource not in (None, '') else gpib_address, gpib_board)
+        transport = VISASCPI(target, timeout, resource_manager=resource_manager)
+        return TCPVNA(host, port, timeout, vendor_key, transport=transport,
+                      resource=target, interface=INTERFACE_GPIB)
+    if iface != INTERFACE_TCPIP:
+        raise ValueError(f'unknown VNA interface: {interface!r}')
     return TCPVNA(host, port, timeout, vendor_key)
+
+
+def available_interfaces() -> dict[str, str]:
+    """Interface keys + Chinese labels for the connection panels."""
+    return dict(INTERFACE_LABELS)
 
 
 def available_vendors() -> dict[str, str]:

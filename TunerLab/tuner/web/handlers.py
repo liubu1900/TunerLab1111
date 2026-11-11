@@ -32,7 +32,10 @@ from ..pointplan import (
     gamma_rings_targets, gamma_rings_table, cold_start_positions,
 )
 from ..vna import MockVNAController
-from ..vna_drivers import create_vna, available_vendors
+from ..vna_drivers import (
+    DEFAULT_GPIB_RESOURCE, available_interfaces, available_vendors, create_vna,
+    visa_resources,
+)
 from ..zmotion_motion import build_tuner_config
 from ..calibration import CalibrationManager
 from ..database import CalibrationDatabase
@@ -743,10 +746,13 @@ def studio_init_hardware(state, body):
         host = str(body.get('vna_ip') or '192.168.2.111')
         port = int(body.get('vna_port', 5025))
         timeout = float(body.get('vna_timeout_ms', 10000)) / 1000.0
+        interface = str(body.get('vna_interface') or 'tcpip').strip().lower()
+        resource = str(body.get('vna_resource') or DEFAULT_GPIB_RESOURCE).strip()
         start = float(body.get('vna_start_hz', 1e9))
         stop = float(body.get('vna_stop_hz', 20e9))
         points = int(body.get('vna_points', 401))
-        vna = create_vna(vendor, host, port, timeout)
+        vna = create_vna(vendor, host, port, timeout,
+                         interface=interface, resource=resource)
         vna.connect()
         # P0 F-05: an explicit P0 frequency mode uses the validated plan.
         # Without one, the legacy single set_sweep call stays untouched.
@@ -1693,7 +1699,7 @@ def studio_validate_interpolation(state, body):
 
 
 # =====================================================================
-# VNA (real vector network analyzer, TCP/IP SCPI)
+# VNA (real vector network analyzer, TCP/IP SCPI or VISA GPIB SCPI)
 # =====================================================================
 def vna_status(state, body):
     return state.vna_status()
@@ -1701,6 +1707,15 @@ def vna_status(state, body):
 
 def vna_vendors(state, body):
     return {'vendors': available_vendors()}
+
+
+def vna_interfaces(state, body):
+    return {'interfaces': available_interfaces()}
+
+
+def vna_visa_resources(state, body):
+    """List what the installed VISA backend can actually see (diagnostics)."""
+    return visa_resources()
 
 
 def vna_connect(state, body):
@@ -1712,11 +1727,20 @@ def vna_connect(state, body):
                 old.close()
             except Exception:  # noqa: BLE001
                 pass
+        # A failed connect must not leave a stale "connected" badge behind.
+        state.vna['controller'] = None
+        state.vna['connected'] = False
+        state.vna['idn'] = None
+        state.vna['vendor'] = None
         cfg = state.vna['config']
         cfg['vendor_key'] = str(body.get('vendor_key') or cfg['vendor_key'] or 'auto')
         cfg['host'] = str(body.get('host') or cfg['host'])
         cfg['port'] = int(body.get('port') or cfg['port'])
         cfg['timeout_ms'] = int(body.get('timeout_ms') or cfg['timeout_ms'])
+        cfg['interface'] = str(body.get('interface') or cfg.get('interface')
+                               or 'tcpip').strip().lower()
+        cfg['resource'] = str(body.get('resource') or cfg.get('resource')
+                              or DEFAULT_GPIB_RESOURCE).strip()
         cfg['start_hz'] = float(body.get('start_hz') or cfg['start_hz'])
         cfg['stop_hz'] = float(body.get('stop_hz') or cfg['stop_hz'])
         cfg['points'] = int(body.get('points') or cfg['points'])
@@ -1725,8 +1749,18 @@ def vna_connect(state, body):
         cfg['power_dbm'] = float(body.get('power_dbm') or cfg['power_dbm'])
         cfg['ifbw_hz'] = float(body.get('ifbw_hz') or cfg['ifbw_hz'])
         controller = create_vna(cfg['vendor_key'], cfg['host'], cfg['port'],
-                                cfg['timeout_ms'] / 1000.0)
-        idn = controller.connect()
+                                cfg['timeout_ms'] / 1000.0,
+                                interface=cfg['interface'],
+                                resource=cfg['resource'])
+        try:
+            idn = controller.connect()
+        except Exception as exc:  # noqa: BLE001 - surface VISA/driver errors
+            state.vna['last_error'] = str(exc)
+            try:
+                controller.close()
+            except Exception:  # noqa: BLE001
+                pass
+            raise
         # apply the sweep / power / ifbw requested by the panel
         controller.set_sweep(cfg['start_hz'], cfg['stop_hz'], cfg['points'])
         controller.set_power(cfg['power_dbm'])
@@ -1757,7 +1791,7 @@ def vna_idn(state, body):
         controller = state.vna.get('controller')
         if controller is None or not controller.connected:
             raise RuntimeError('VNA not connected')
-        idn = controller.transport.query('*IDN?')
+        idn = controller.query('*IDN?')
         state.vna['idn'] = idn
     return state.vna_status()
 
@@ -2469,9 +2503,11 @@ ROUTES = {
     'POST /api/log/recent': oplog_recent,
     'POST /api/log/clear': oplog_clear,
     'POST /api/log/export': oplog_export,
-    # VNA (real, TCP/IP SCPI)
+    # VNA (real, TCP/IP SCPI or VISA GPIB SCPI)
     'GET /api/vna/status': vna_status,
     'GET /api/vna/vendors': vna_vendors,
+    'GET /api/vna/interfaces': vna_interfaces,
+    'GET /api/vna/visa_resources': vna_visa_resources,
     'POST /api/vna/connect': vna_connect,
     'POST /api/vna/disconnect': vna_disconnect,
     'POST /api/vna/idn': vna_idn,

@@ -232,7 +232,12 @@
             <input id="st-safe-z" class="num" type="number" step="0.01" value="0" />
           </div>
           <div class="form-row">
-            <label><input id="st-vna-real" type="checkbox" /> 使用真实矢网 (TCP/IP)</label>
+            <label><input id="st-vna-real" type="checkbox" /> 使用真实矢网</label>
+            <label>接口</label>
+            <select id="st-vna-interface">
+              <option value="tcpip">TCP/IP</option>
+              <option value="gpib">GPIB (VISA)</option>
+            </select>
             <label>厂商</label>
             <select id="st-vna-vendor">
               <option value="auto">自动识别</option>
@@ -242,8 +247,11 @@
               <option value="ceyear">思仪 AV3672</option>
               <option value="anritsu">安立</option>
             </select>
-            <label>VNA IP</label>
-            <input id="st-vna-ip" type="text" placeholder="192.168.0.50" />
+            <label id="st-vna-ip-label">VNA IP</label>
+            <input id="st-vna-ip" type="text" placeholder="192.168.2.111" />
+            <label id="st-vna-resource-label">VISA 资源</label>
+            <input id="st-vna-resource" type="text" value="GPIB0::17::INSTR"
+                   placeholder="GPIB0::17::INSTR" />
           </div>
           <div class="form-row">
             <label>VNA 起始 (Hz)</label>
@@ -744,18 +752,27 @@
         </div>
       </section>
 
-      <!-- VNA control (real, TCP/IP SCPI) -->
+      <!-- VNA control (real, TCP/IP SCPI or VISA GPIB SCPI) -->
       <section class="page" id="page-vna" hidden>
-        <h1>矢网控制 (VNA) · TCP/IP</h1>
+        <h1>矢网控制 (VNA) · TCP/IP / GPIB</h1>
         <div class="card">
           <h2>连接</h2>
           <div class="form-row">
+            <label>接口</label>
+            <select id="vna-interface">
+              <option value="tcpip">TCP/IP（SCPI socket）</option>
+              <option value="gpib">GPIB（VISA / 82357B）</option>
+            </select>
             <label>厂商</label>
             <select id="vna-vendor"></select>
-            <label>IP</label>
-            <input id="vna-ip" type="text" placeholder="192.168.0.50" />
-            <label>端口</label>
+            <label id="vna-ip-label">IP</label>
+            <input id="vna-ip" type="text" placeholder="192.168.2.111" />
+            <label id="vna-port-label">端口</label>
             <input id="vna-port" class="num" type="number" value="5025" />
+            <label id="vna-resource-label">VISA 资源</label>
+            <input id="vna-resource" type="text" value="GPIB0::17::INSTR"
+                   placeholder="GPIB0::17::INSTR" />
+            <button id="vna-visa-detect" class="btn">检测 VISA</button>
             <label>超时 (ms)</label>
             <input id="vna-timeout" class="num" type="number" value="10000" />
           </div>
@@ -800,7 +817,7 @@
             <tbody></tbody>
           </table>
         </div>
-        <p class="hint">所有矢量网络分析仪均通过 TCP/IP（SCPI，默认端口 5025）直接控制，无需安装 VISA 运行时。支持的厂商：罗德(R&S)、Keysight E5071C(ENA)、Keysight N5247 PNA-X、思仪(AV3672)、安立(VectorStar/ShockLine)。连不上请先确认：① 网段互通、② 仪器已开启 SCPI 且允许 LAN 控制、③ 防火墙放行 5025。</p>
+        <p class="hint">支持两种接口：TCP/IP（SCPI，默认端口 5025，无需 VISA 运行时）；GPIB（VISA 资源名，如 GPIB0::17::INSTR，Agilent/Keysight 82357B USB-GPIB 卡需安装 Keysight IO Libraries Suite，可用「检测 VISA」读取实际资源）。两种接口共用同一套厂商 SCPI 预设：罗德(R&amp;S)、Keysight E5071C(ENA)、Keysight N5247 PNA-X、思仪(AV3672)、安立(VectorStar/ShockLine)。TCP/IP 连不上请确认：① 网段互通、② 仪器已开启 SCPI 且允许 LAN 控制、③ 防火墙放行 5025；GPIB 连不上请确认：① VISA 运行时已安装、② 82357B 在 Connection Expert 中可见、③ GPIB 主地址正确。</p>
       </section>
       <!-- 操作日志 -->
       <section class="page" id="page-oplog" hidden>

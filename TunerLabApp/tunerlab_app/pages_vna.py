@@ -152,6 +152,8 @@ class VnaPage(QWidget):
         self.scan_button.clicked.connect(self.on_scan)
         self.errors_button.clicked.connect(self.on_read_errors)
         self.clear_button.clicked.connect(self.on_clear)
+        self.interface_combo.currentIndexChanged.connect(self._sync_interface)
+        self.detect_button.clicked.connect(self.on_detect_visa)
 
         # Moving from one trace to the next emits leave-then-move; a short delay
         # keeps the shared cursor from blinking off between the two events.
@@ -161,6 +163,7 @@ class VnaPage(QWidget):
         self._cursor_timer.timeout.connect(self._clear_trace_cursor)
 
         self._load_config_into_form(cfg)
+        self._sync_interface()
         self.points_spin.valueChanged.connect(self._update_step_from_points)
         self.step_spin.valueChanged.connect(self._update_points_from_step)
         self._update_step_from_points()
@@ -180,20 +183,44 @@ class VnaPage(QWidget):
         form.setHorizontalSpacing(10)
         form.setVerticalSpacing(8)
 
+        self.interface_combo = QComboBox()
+        for key, label in (handlers.vna_interfaces(self.state, {})
+                           .get('interfaces', {}).items()):
+            self.interface_combo.addItem(label, key)
+        form.addRow('接口', self.interface_combo)
+
         self.vendor_combo = QComboBox()
         for key, label in handlers.vna_vendors(self.state, {}).get('vendors', {}).items():
             self.vendor_combo.addItem(label, key)
         self.vendor_combo.insertItem(0, '自动识别 (*IDN?)', 'auto')
         form.addRow('厂商', self.vendor_combo)
 
+        self.host_label = QLabel('IP 地址')
         self.host_edit = QLineEdit(str(cfg['host']))
         self.host_edit.setPlaceholderText('192.168.2.111')
-        form.addRow('IP 地址', self.host_edit)
+        form.addRow(self.host_label, self.host_edit)
 
+        self.port_label = QLabel('端口')
         self.port_spin = QSpinBox()
         self.port_spin.setRange(1, 65535)
         self.port_spin.setValue(int(cfg['port']))
-        form.addRow('端口', self.port_spin)
+        form.addRow(self.port_label, self.port_spin)
+
+        self.resource_label = QLabel('VISA 资源')
+        self.resource_edit = QLineEdit(str(cfg.get('resource') or 'GPIB0::17::INSTR'))
+        self.resource_edit.setPlaceholderText('GPIB0::17::INSTR')
+        self.resource_edit.setToolTip(
+            '填仪器 GPIB 主地址（如 17）或完整 VISA 资源名（如 GPIB0::17::INSTR）。\n'
+            'Agilent/Keysight 82357B USB-GPIB 卡需要安装 Keysight IO Libraries Suite。')
+        self.detect_button = QPushButton('检测 VISA')
+        self.detect_button.setToolTip('读取 VISA 运行时实际可见的 GPIB 资源')
+        resource_row = QHBoxLayout()
+        resource_row.setContentsMargins(0, 0, 0, 0)
+        resource_row.addWidget(self.resource_edit, 1)
+        resource_row.addWidget(self.detect_button)
+        self.resource_field = QWidget()
+        self.resource_field.setLayout(resource_row)
+        form.addRow(self.resource_label, self.resource_field)
 
         self.timeout_spin = QSpinBox()
         self.timeout_spin.setRange(500, 120000)
@@ -333,10 +360,60 @@ class VnaPage(QWidget):
         spin.valueChanged.connect(self._update_step_from_points)
         return spin
 
+    # ---------------- interface switching ----------------
+    def _sync_interface(self) -> None:
+        """Show TCP/IP fields or the VISA resource field, never both."""
+        gpib = self.interface_combo.currentData() == 'gpib'
+        for widget in (self.host_label, self.host_edit,
+                       self.port_label, self.port_spin):
+            widget.setVisible(not gpib)
+        self.resource_label.setVisible(gpib)
+        self.resource_field.setVisible(gpib)
+
+    def on_detect_visa(self) -> None:
+        """Read the GPIB resources the installed VISA backend can actually see."""
+        self.detect_button.setEnabled(False)
+        self.detect_button.setText('检测中…')
+        run_in_background(lambda: handlers.vna_visa_resources(self.state, {}),
+                          on_done=self._visa_detected, on_error=self._visa_failed,
+                          description='visa resources')
+
+    def _restore_detect_button(self) -> None:
+        self.detect_button.setEnabled(True)
+        self.detect_button.setText('检测 VISA')
+
+    def _visa_detected(self, result: dict) -> None:
+        self._restore_detect_button()
+        backend = result.get('backend') or 'VISA'
+        gpib = [r for r in result.get('resources', [])
+                if str(r).upper().startswith('GPIB')]
+        if gpib:
+            self.resource_edit.setText(gpib[0])
+            self.report(f'VISA 后端 {backend} · GPIB 资源 {", ".join(gpib)}')
+            if len(gpib) > 1:
+                QMessageBox.information(
+                    self, 'VISA 资源',
+                    '检测到多个 GPIB 资源：\n' + '\n'.join(gpib) +
+                    '\n\n已填入第一个，可在资源框中手动修改。')
+        else:
+            QMessageBox.information(
+                self, 'VISA 资源',
+                f'VISA 后端：{backend}\n\n未发现 GPIB 资源。请确认 82357B 已插入、'
+                '仪器已上电，并在 Keysight Connection Expert 中能看到该仪器。')
+
+    def _visa_failed(self, exc: BaseException) -> None:
+        self._restore_detect_button()
+        QMessageBox.warning(self, 'VISA 检测失败', f'{type(exc).__name__}: {exc}')
+        self.report(f'VISA 检测失败: {exc}')
+
     # ---------------- sweep model ----------------
     def _load_config_into_form(self, cfg: dict) -> None:
         self.vendor_combo.setCurrentIndex(
             max(0, self.vendor_combo.findData(str(cfg.get('vendor_key') or 'auto'))))
+        self.interface_combo.setCurrentIndex(
+            max(0, self.interface_combo.findData(
+                str(cfg.get('interface') or 'tcpip'))))
+        self.resource_edit.setText(str(cfg.get('resource') or 'GPIB0::17::INSTR'))
         self.start_spin.blockSignals(True)
         self.stop_spin.blockSignals(True)
         self.start_spin.setValue(float(cfg['start_hz']) / 1e9)
@@ -409,11 +486,19 @@ class VnaPage(QWidget):
             self.stale_label.setVisible(True)
 
     # ---------------- body ----------------
+    def _target_text(self) -> str:
+        """What the top-bar badge should show for the active interface."""
+        if self.interface_combo.currentData() == 'gpib':
+            return self.resource_edit.text().strip()
+        return self.host_edit.text().strip()
+
     def _body(self) -> dict[str, Any]:
         return {
             'vendor_key': self.vendor_combo.currentData(),
+            'interface': self.interface_combo.currentData(),
             'host': self.host_edit.text().strip(),
             'port': self.port_spin.value(),
+            'resource': self.resource_edit.text().strip(),
             'timeout_ms': self.timeout_spin.value(),
             'start_hz': self.start_spin.value() * 1e9,
             'stop_hz': self.stop_spin.value() * 1e9,
@@ -436,7 +521,15 @@ class VnaPage(QWidget):
     # ---------------- actions ----------------
     def on_connect(self) -> None:
         body = self._body()
-        if not body['host']:
+        if body['interface'] == 'gpib':
+            from tuner.vna_drivers import normalise_gpib_resource
+            try:
+                body['resource'] = normalise_gpib_resource(body['resource'])
+            except ValueError as exc:
+                QMessageBox.warning(self, '矢网连接', str(exc))
+                return
+            self.resource_edit.setText(body['resource'])
+        elif not body['host']:
             QMessageBox.warning(self, '矢网连接', '请填写仪器 IP 地址')
             return
         self.connect_button.setEnabled(False)
@@ -666,10 +759,11 @@ class VnaPage(QWidget):
         error = status.get('last_error')
         self.error_label.setText(str(error) if error else '—')
         self.status_changed.emit(
-            connected, self.host_edit.text().strip(), str(status.get('idn') or ''))
+            connected, self._target_text(), str(status.get('idn') or ''))
 
     def connection_info(self) -> tuple[bool, str, str]:
-        """Current (connected, host, idn) without waiting for the next poll."""
+        """Current (connected, target, idn) without waiting for the next poll."""
         connected = bool(self.state.vna.get('connected'))
-        host = self.host_edit.text().strip() or str(self.state.vna['config'].get('host') or '')
-        return connected, host, str(self.state.vna.get('idn') or '')
+        target = self._target_text() or str(
+            self.state.vna['config'].get('host') or '')
+        return connected, target, str(self.state.vna.get('idn') or '')

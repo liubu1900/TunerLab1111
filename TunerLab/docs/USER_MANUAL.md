@@ -170,5 +170,5 @@ link.close()
 - Qt 平台插件错误：确认桌面显示环境及系统 Qt/xcb 依赖；无头测试使用 `QT_QPA_PLATFORM=offscreen`，不可作为桌面显示方式。
 - 坐标/配置不匹配：使用与数据库一致的轴数、间距、限位、Z0 和模拟模式。
 - 失败点：保留错误和已完成点，排除原因后重新打开任务续扫。
-- 实机通信：`docs/HARDWARE.md` 记录了实测参数与验证结论。当前 VNA 仍为 Mock，没有经实机认证的 VNA 型号预设。
+- 实机通信：运动控制器见 `docs/HARDWARE.md`；矢网接入（TCP/IP 与 GPIB / Agilent 82357B）见 `docs/VNA.md`。VNA 已有 6 组厂商 SCPI 预设与自动识别，TCP/IP 分支在 R&S ZNA26 上验证过；GPIB 分支尚未完成实机联调。
 - 急停后：必须「复位急停」并重新回零，软件才允许再次运动。软件急停不能替代硬件联锁。

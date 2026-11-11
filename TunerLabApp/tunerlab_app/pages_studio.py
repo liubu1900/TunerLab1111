@@ -157,18 +157,34 @@ class StudioSetupPage(_StudioPage):
             self.vna_vendor.addItem(label, key)
         self.vna_vendor.insertItem(0, '自动识别', 'auto')
         self.vna_ip = QLineEdit('192.168.2.111')
+        self.vna_interface = QComboBox()
+        for key, label in (handlers.vna_interfaces(self.state, {})
+                           .get('interfaces', {}).items()):
+            self.vna_interface.addItem(label, key)
+        self.vna_resource = QLineEdit('GPIB0::17::INSTR')
+        self.vna_resource.setToolTip(
+            'GPIB 主地址（如 17）或 VISA 资源名（如 GPIB0::17::INSTR）；'
+            '82357B 需要安装 Keysight IO Libraries Suite。')
         self.vna_combo = QComboBox()
         self.vna_combo.addItem('模拟矢网', 'mock')
-        self.vna_combo.addItem('真实矢网 (TCP/IP)', 'real')
+        self.vna_combo.addItem('真实矢网 (TCP/IP / GPIB)', 'real')
+        self.vna_ip_label = field_label('IP 地址')
+        self.vna_resource_label = field_label('VISA 资源')
         vna_grid.addWidget(field_label('矢网来源'), 0, 0)
         vna_grid.addWidget(self.vna_combo, 0, 1)
         vna_grid.addWidget(field_label('型号'), 1, 0)
         vna_grid.addWidget(self.vna_vendor, 1, 1)
-        vna_grid.addWidget(field_label('IP 地址'), 2, 0)
-        vna_grid.addWidget(self.vna_ip, 2, 1)
+        vna_grid.addWidget(field_label('接口'), 2, 0)
+        vna_grid.addWidget(self.vna_interface, 2, 1)
+        vna_grid.addWidget(self.vna_ip_label, 3, 0)
+        vna_grid.addWidget(self.vna_ip, 3, 1)
+        vna_grid.addWidget(self.vna_resource_label, 4, 0)
+        vna_grid.addWidget(self.vna_resource, 4, 1)
         vna_card.body.addLayout(vna_grid)
         vna_card.body.addWidget(hint_label(
-            '真实矢网默认连 192.168.2.111:5025；用模拟矢网可在无仪器时完整走一遍流程。'))
+            '真实矢网可选 TCP/IP（默认 192.168.2.111:5025）或 GPIB（默认 '
+            'GPIB0::17::INSTR，需 Keysight IO Libraries Suite）；'
+            '用模拟矢网可在无仪器时完整走一遍流程。'))
         step.add_card(vna_card)
         self.wizard.add_step(step)
 
@@ -417,6 +433,7 @@ class StudioSetupPage(_StudioPage):
 
         self.motion_combo.currentIndexChanged.connect(self._sync_sources)
         self.vna_combo.currentIndexChanged.connect(self._sync_sources)
+        self.vna_interface.currentIndexChanged.connect(self._sync_vna_interface)
         self.freq_mode.currentIndexChanged.connect(self._sync_freq_mode)
         self.plan_combo.currentIndexChanged.connect(self._sync_plan)
         for widget in (self.x_count, self.z_count):
@@ -489,8 +506,22 @@ class StudioSetupPage(_StudioPage):
             widget.setVisible(visible)
             widget.setEnabled(visible and (real or key not in ('start', 'stop', 'points')))
         self.vna_vendor.setEnabled(real)
-        self.vna_ip.setEnabled(real)
+        self._sync_vna_interface()
         self._refresh_freq_preview()
+
+    def _sync_vna_interface(self) -> None:
+        """Only one addressing scheme is meaningful per interface."""
+        real = self.vna_combo.currentData() == 'real'
+        gpib = self.vna_interface.currentData() == 'gpib'
+        self.vna_interface.setEnabled(real)
+        for label, widget in ((self.vna_ip_label, self.vna_ip),
+                              (self.vna_resource_label, self.vna_resource)):
+            label.setEnabled(real)
+            widget.setEnabled(real)
+        self.vna_ip_label.setVisible(real and not gpib)
+        self.vna_ip.setVisible(real and not gpib)
+        self.vna_resource_label.setVisible(real and gpib)
+        self.vna_resource.setVisible(real and gpib)
 
     def _refresh_freq_preview(self) -> None:
         """Show the frequency grid the current settings would really measure."""
@@ -673,6 +704,8 @@ class StudioSetupPage(_StudioPage):
             'safe_z': self.safe_z.value(),
             'vna_source': self.vna_combo.currentData(),
             'vna_vendor': self.vna_vendor.currentData(),
+            'vna_interface': self.vna_interface.currentData(),
+            'vna_resource': self.vna_resource.text().strip(),
             'vna_ip': self.vna_ip.text().strip(),
             'frequency_mode': mode,
             'fo_hz': fo * 1e9,

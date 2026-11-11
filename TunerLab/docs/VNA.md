@@ -1,83 +1,115 @@
-# 矢量网络分析仪（VNA）多厂商 TCP/IP 接入指南
+# 矢量网络分析仪（VNA）多厂商接入指南：TCP/IP 与 GPIB
 
-> 适用范围：TunerLab Web 控制台（`python -m tuner.web`）的「矢网控制（VNA）」面板，
-> 以及「校准工作台」中勾选"使用真实矢网"后的实机采集。
-> 驱动代码：`tuner/vna_drivers.py`（仅依赖 Python 标准库 `socket`，无需 VISA 运行时）。
+> 适用范围：TunerLab 桌面端「矢网控制 (VNA)」页、Web 控制台同名页面，以及建库向导里勾选「真实矢网」后的实机采集。
+> 驱动代码：`tuner/vna_drivers.py`。厂商 SCPI 预设由两种接口共用，切换的只是传输层。
+> 更新：2026-11-11（新增 GPIB / Agilent 82357B 支持）。
 
 ---
 
-## 1. 一句话原理
+## 1. 两种接口，一套驱动
 
-所有支持的矢量网络分析仪都通过 **TCP/IP 上的 SCPI 文本协议** 直接控制，默认端口 **5025**。
-软件用原生 socket 发命令、读响应，**不依赖** Keysight IO Libraries / R&S VISA / NI-VISA 等任何厂商运行时。
-只要仪器开启了 SCPI（LAN）服务器、且与上位机同网段，即可连接。
+| 接口 | 传输层 | 运行时依赖 | 地址形式 | 默认值 |
+|---|---|---|---|---|
+| **TCP/IP** | `SocketSCPI`（原生 socket SCPI） | 仅 Python 标准库 | `IP:端口` | `192.168.2.111:5025` |
+| **GPIB** | `VISASCPI`（PyVISA） | **Keysight IO Libraries Suite** + `pyvisa` | VISA 资源串 | `GPIB0::17::INSTR` |
 
-支持的厂商（按 Web 面板下拉顺序）：
+- 两种接口发出的 SCPI 命令、厂商识别（`*IDN?`）、S 参数取数（ASCII real/imag）完全一致，只有「怎么把字节送到仪器」不同。
+- GPIB 消息靠 **EOI 线**结束，不是换行符，因此 `read_termination` / `write_termination` 都留空，由 VISA 在最后一个字节置 EOI。
+- `pyvisa` 已在 `TunerLab/requirements-tested.txt`（1.16.2）中，但只有选择 GPIB 时才会被导入；TCP/IP 路径仍然零额外依赖。
+- 采集结果 `Measurement.metadata` 会记录 `resource`（`IP:端口` 或 `GPIB0::17::INSTR`）与 `interface`（`tcpip` / `gpib`），便于追溯数据来源。
+
+支持的厂商（两种接口共用同一张表）：
 
 | 下拉项 | `vendor_key` | 代表机型 | 命令差异点 |
 |---|---|---|---|
-| 罗德 R&S | `rsp` | ZNB / ZVA / ZND | 测量定义 `:CALC:PAR:SDEF`，取数 `SDAT` |
-| Keysight E5071C | `keysight_ena` | E5071C / E5080 / E5063（ENA 系） | `:CALC:PAR:DEF`，取数 `SDATA` |
-| Keysight N5247 PNA-X | `keysight_pna` | N5247A / N522x / N523x（PNA/PNA-X） | 功率 `:SOUR:POW:LEV:IMM:AMPL` |
+| 罗德 R&S | `rsp` | ZNB / ZVA / ZND | 测量定义 `:CALC1:PAR:SDEF`，取数 `SDAT` |
+| Keysight ENA | `keysight_ena` | E5071C / E5080 / E5063 | `:CALC1:PAR:DEF`，取数 `SDATA` |
+| Keysight PNA-X | `keysight_pna` | N5247A / N522x / N523x | 功率 `:SOUR1:POW:LEV:IMM:AMPL` |
 | 思仪 Ceyear | `ceyear` | AV3672 系列 | ENA 风格 SCPI |
 | 安立 Anritsu | `anritsu` | VectorStar MS46xxx / ShockLine | ENA 风格 SCPI |
 | 自动识别 | `auto` | — | 连接后读 `*IDN?` 自动判断（**推荐**） |
 
-> 选择"自动识别"时，软件读 `*IDN?` 后按厂商关键词（ROHDE/R&S、E507/E508、N524/PNA、CEYEAR/AV367、ANRITSU/MS46…）
-> 自动选定命令集。如果不确定机型，优先用"自动识别"。
+---
+
+## 2. GPIB 接入（Agilent / Keysight 82357B USB-GPIB）
+
+### 2.1 需要装的东西
+
+1. **Keysight IO Libraries Suite**（Agilent 82357B 的 Windows 驱动、VISA 运行时 `visa32.dll`、Connection Expert）。82357B 是专有 USB-GPIB 适配器，**不能用 NI-VISA 代替**，也不被 `pyvisa-py` 直接支持。
+2. Python 侧 `pyvisa`（已在 `requirements-tested.txt`，虚拟环境里一般已装好）。
+3. 安装完成后**重启一次或重新打开应用**，让 VISA 服务与系统 PATH 生效。
+
+> 本机实测（2026-11-11）：装完 IO Libraries 后 `C:\Windows\System32\visa32.dll` 已存在，但从安装前就打开的进程里 PyVISA 仍报 `VI_ERROR_LIBRARY_NFOUND`。原因是 Python 3.8+ 加载依赖 DLL 不再依赖 PATH，且旧进程 PATH 未刷新。**驱动代码已自动把 Keysight / IVI 的 `bin` 目录加入 DLL 搜索路径**（`os.add_dll_directory`），所以从旧终端、IDE、常驻桌面进程启动也能加载。
+
+### 2.2 硬件连接与 GPIB 地址
+
+1. 82357B 插上位机 USB，GPIB 线缆接仪器，仪器上电；在 **Keysight Connection Expert** 里确认能看到该 GPIB 接口和仪器。
+2. 在仪器前面板查 **GPIB Address / IEEE-488 Address**（常见 **16** 或 **17**）；多块 GPIB 卡时板号从 **0** 开始。
+3. 资源串格式：`GPIB<板号>::<主地址>[::<副地址>]::INSTR`，例如 `GPIB0::17::INSTR`、`GPIB1::16::0::INSTR`。主/副地址范围 **0–30**（31 是广播地址，不可用于仪器）。
+4. 界面里**可以只填地址数字**（如 `17`），软件自动补成 `GPIB0::17::INSTR`；也可以填完整 VISA 资源串。填 IP 地址会被明确拒绝。
+
+### 2.3 「检测 VISA」按钮 / 命令行自检
+
+桌面「矢网控制」页与 Web 控制台都有 **检测 VISA** 按钮，等价于：
+
+```powershell
+cd D:\Tuner
+.\.venv\Scripts\python -c "from tuner.vna_drivers import visa_resources; print(visa_resources())"
+```
+
+返回示例：
+
+```text
+{'backend': 'C:\\WINDOWS\\system32\\visa32.dll',
+ 'resources': ['GPIB0::17::INSTR', 'ASRL3::INSTR']}
+```
+
+按钮会把第一个 GPIB 资源自动填进资源框。若 `resources` 为空，说明 VISA 运行时已加载但**总线上还没有可见设备**——检查 82357B 是否插好、驱动是否安装、仪器是否上电、GPIB 线是否接好，必要时重启一次。
+
+### 2.4 常见加载故障
+
+| 报错 | 含义 | 处理 |
+|---|---|---|
+| `Could not locate a VISA implementation` | 找不到 `visa32.dll` | 安装 Keysight IO Libraries Suite，重启 |
+| `VI_ERROR_LIBRARY_NFOUND (-1073807202)` | 主库找到了，依赖 DLL 没加载 | 代码已自动补 DLL 搜索路径；仍失败则确认 64 位 Python 配 64 位 VISA、重启、修复安装 |
+| `VI_ERROR_RSRC_NFOUND` / 打开资源失败 | 资源名不存在 | 用「检测 VISA」读真实资源名，核对板号与主地址 |
+| 连接超时、无 `*IDN?` 响应 | 地址错 / 仪器未上电 / 未处于 GPIB 远控模式 | 前面板确认 GPIB 地址与 Remote 状态；适当加大超时 |
 
 ---
 
-## 2. 连接前的三项网络准备（每家都通用）
+## 3. TCP/IP 接入（原有方式）
 
-1. **同网段互通**：上位机（跑 Web 服务的 Windows 主机）与矢网必须在同一子网，能互相 `ping` 通。
-   例如矢网 `192.168.0.50`、掩码 `255.255.255.0`，上位机 IP 也应在 `192.168.0.x`。
-2. **开启 SCPI / LAN 服务器**：仪器需允许 LAN 远程控制（见第 3 节各品牌步骤）。
-3. **防火墙放行 TCP 5025**：在上位机防火墙入/出站规则里放行 5025；若公司网络有隔离策略，请接在仪器同网段的小交换机/直连上，避免跨网段。
+### 3.1 三项网络准备
 
-> 与 Zmotion 控制器不同，矢网是**标准 TCP 端口**，可用 `telnet 192.168.0.50 5025` 或
-> `Test-NetConnection -Port 5025 192.168.0.50`（PowerShell）先验端口是否通，比 UDP 广播的控制器容易排查。
+1. **同网段互通**：上位机与矢网能互相 `ping` 通。
+2. **开启 SCPI / LAN 服务器**：仪器允许 LAN 远程控制（见 3.2）。
+3. **防火墙放行 TCP 5025**：`telnet 192.168.2.111 5025` 或 `Test-NetConnection -Port 5025 192.168.2.111` 先验端口。
 
----
+### 3.2 各品牌开启 SCPI（LAN 远程控制）步骤
 
-## 3. 各品牌开启 SCPI（LAN 远程控制）步骤
+> 固件版本不同菜单路径会有差异；连上后若识别厂商为空或命令报错，请把 `*IDN?` 返回字符串发出来校准命令集。
 
-> 不同固件版本的菜单路径会有差异，下列为通用做法；若菜单名称不同，以仪器实际界面为准。
-> 连上后若软件报"识别厂商"为空或命令报错，请把 `*IDN?` 返回字符串发给我，我再校准命令集。
+#### 罗德 R&S（ZNB / ZVA / ZND）
+- **System → Remote Control**（或 I/O → Remote），确认 TCP/IP SCPI 服务器已启用，端口 5025。
+- 取数助记符 `SDAT`；测量定义 `:CALC1:PAR:SDEF 'name','S11'`（带引号），软件已做 SDEF/DEF 互回退。
 
-### 3.1 罗德 R&S（ZNB / ZVA / ZND）
-- 前面板：**System → Remote Control**（或 **I/O → Remote**），确认 **TCP/IP SCPI 服务器**已启用，端口 **5025**。
-- 如远程操作被面板锁定，可在远程前于面板解除"本地锁定"，或在 SCPI 下用 `:SYST:LOCK:REQ` 申请控制权。
-- 数据格式：R&S 取数助记符为 `SDAT`（软件已默认使用，无需手改）。
-- 常见坑：R&S 的通道/迹线定义为 `:CALC1:PAR:SDEF 'name','S11'`（带引号），软件已按"严格带引号 + SDEF/DEF 互回退"处理。
+#### Keysight E5071C（ENA 系列）
+- **System → Misc Setup → Network Setting** 配置 IP 并启用 LAN；SCPI Socket 服务器默认端口 5025。
+- 可用 `:SYST:COMM:LAN:PORT?` 查询端口；取数助记符 `SDATA`，测量定义 `:CALC1:PAR:DEF`。
 
-### 3.2 Keysight E5071C（ENA 系列）
-- 前面板：**System → Misc Setup → Network Setting**，设置 IP / 子网掩码 / 网关，并启用 LAN。
-- ENA 的 **SCPI Socket 服务器默认端口 5025 且默认随 LAN 启用**；可在 `:SYST:COMM:LAN:PORT?` 查询/用 `:SYST:COMM:LAN:PORT <n>` 修改。
-- 也可通过 SCPI 配置地址：`SYST:COMM:LAN:ADDR "192.168.0.50"`、`SYST:COMM:LAN:SMASK "255.255.255.0"`、`SYST:COMM:LAN:GATE "192.168.0.1"`。
-- 数据格式： ENA 取数助记符为 `SDATA`，测量定义为 `:CALC1:PAR:DEF`（软件默认）。
+#### Keysight N5247A（PNA / PNA-X）
+- **System → System Setup → Network Setup** 设置 IP；启用 SCPI Server（5025）。
+- 功率命令 `:SOUR1:POW:LEV:IMM:AMPL`；软件固定定义 4 个 S 参数，需保证通道 1 可用。
 
-### 3.3 Keysight N5247A（PNA / PNA-X 系列）
-- 前面板：**System → System Setup → Network Setup** 设置 IP；**System → System Setup → Configure… → SICL/LAN 或 SCPI Server** 启用 SCPI 服务器（端口 **5025**，默认启用）。
-- PNA-X 功率设置走 `:SOUR:POW:LEV:IMM:AMPL`（软件已默认；ENA 系用的是 `:SOUR:POW:LEV`，两者都会尝试）。
-- 若仪器启用了"多端口"或"通道数"限制，软件固定定义 4 个 S 参数（S11/S21/S12/S22），需保证通道 1 可用。
+#### 思仪 Ceyear（AV3672）
+- **系统 → 通信设置 → LAN / 网络** 配置并启用远程；ENA 风格 SCPI，端口 5025。
 
-### 3.4 思仪 Ceyear（AV3672 系列）
-- 前面板：**系统 → 通信设置 → LAN / 网络**，配置 IP 并启用远程（LAN）控制。
-- AV3672 采用 **ENA 风格 SCPI**，端口 **5025**，测量定义 `:CALC1:PAR:DEF`、取数 `SDATA`（与 ENA 一致，软件默认）。
-- 如该机型使用与 ENA 不同的端口或命令前缀，请在前面板确认 SCPI 端口后，于 Web 面板把端口改一致。
-
-### 3.5 安立 Anritsu（VectorStar / ShockLine）
-- 前面板：**System → Remote / SCPI Server**（不同型号措辞不同），启用远程 SCPI，端口通常 **5025**。
-- ShockLine 与 VectorStar 均为 ENA 风格 SCPI，软件按 `DEF` / `SDATA` 默认处理。
-- 注意：部分 Anritsu 机型默认 SCPI 端口可能不是 5025（如 5030 或自定义），请在前面板"Remote"菜单确认实际端口，
-  并在 Web 面板把"端口"改成对应值后再连接。
+#### 安立 Anritsu（VectorStar / ShockLine）
+- **System → Remote / SCPI Server** 启用远程 SCPI；部分机型默认端口不是 5025（如 5030），请在面板确认后同步修改端口。
 
 ---
 
-## 4. 软件发出的命令对照（便于对照仪器报错）
-
-连接与采集过程中，软件（按厂商 profile）会依次发送以下 SCPI：
+## 4. 软件发出的命令对照（TCP/IP、GPIB 相同）
 
 | 用途 | 命令（示例，key=auto 时按厂商切换） |
 |---|---|
@@ -97,30 +129,28 @@
 | 取数 | `:CALC1:DATA? SDATA`（R&S 用 `SDAT`） |
 | 读错误队列 | `:SYST:ERR?` |
 
-### 容错机制
-- **测量定义**：先发 `SDEF`，若 `:SYST:ERR?` 报错则自动改发 `DEF`（反之亦然），所以 R&S 与其余厂家都能定义成功。
-- **触发**：依次尝试 `:INIT1:IMM` / `:INIT:IMM` / `:INITiate:IMMediate` + `*OPC?`，任一返回 `1` 即视为完成。
-- **错误探查**：所有写命令后都会查 `:SYST:ERR?`，非空错误会汇总在"最近错误"字段，方便你定位。
+**容错机制**
+- **测量定义**：先发 `SDEF`，若 `:SYST:ERR?` 报错则改发 `DEF`（反之亦然）。
+- **触发**：依次尝试 3 种 `:INIT…;*OPC?` 组合；若都失败（部分 GPIB 老仪器不接受「触发 + 查询」拼在同一条消息里），再退化为「单独发触发命令 → 单独查询 `*OPC?`」。
+- **错误探查**：写命令后查 `:SYST:ERR?`；仪器不支持错误队列时读取失败会被忽略，不会中断连接。
 
 ---
 
-## 5. 在 Web 控制台怎么用
+## 5. 在软件里怎么选
 
-### 5.1 单独控制矢网（「矢网控制 VNA」页）
-1. 左侧导航 → **仪器控制 → 矢网控制 (VNA)**。
-2. 填 **厂商**（建议"自动识别"）、**IP**、**端口**（默认 5025）、**超时**（默认 10000 ms）、扫频起止/点数、功率、中频带宽。
-3. 点 **连接并配置** → 软件建立 socket、读 `*IDN?`、自动识别厂商、下发扫频/功率/中频。
-4. 看"连接状态"卡：**状态=已连接**、**识别厂商**、**IDN**、**最近错误**。若 IDN 正常但识别厂商为空，说明关键词未命中，请手选对应厂商后重连。
-5. 点 **单次扫描并读取** → 触发一次扫描、回读 S11~S22，页面绘制幅频曲线并列出数据表（单位 dB）。
+### 5.1 桌面端「矢网控制 (VNA)」页
+1. **接口**下拉选 `TCP/IP` 或 `GPIB (VISA)`。
+2. TCP/IP：填 IP、端口；GPIB：填 VISA 资源（或点「检测 VISA」自动填入）。两组字段会自动互斥显示。
+3. 选厂商（建议自动识别）、超时、扫频起止/点数、功率、中频带宽 → **连接并配置**。
+4. 看「仪器状态」卡的 IDN / 识别厂商 / 最近错误 → **单次扫描（4 路）** 读取 S11~S22。
 
-### 5.2 用真实矢网跑校准（「校准工作台 → Dashboard」）
-1. 左侧导航 → **校准工作台（模拟）→ Dashboard**。
-2. 勾选 **使用真实矢网 (TCP/IP)**，填厂商/IP/起始/终止/频点。
-3. 点 **初始化模拟硬件并回零**（注意：运动控制器仍是 Mock 或实机 Zmotion，与矢网相互独立；真实矢网只替换"测量"这一环）。
-4. 后续「校准设置 / 校准运行 / 数据库 / Smith 图 / 阻抗调谐 / 验证报告」流程不变，只是 S 参数来自实机。
+### 5.2 Web 控制台
+「矢网控制 (VNA)」页的 **接口** 下拉与检测按钮行为同上；建库段的「使用真实矢网」下同样有接口与 VISA 资源字段。
 
-> 同一台矢网若同时被"VNA 面板"和"校准工作台真实矢网"两个会话占用，命令会交错。
-> **单台实机建议二选一**：要么在 VNA 面板手动采，要么进校准工作台让它托管。
+### 5.3 建库向导「真实矢网」
+「参考面与仪器」步骤里把 **矢网来源** 选为真实矢网，再选 **接口**（TCP/IP / GPIB），填 IP 或 VISA 资源。后端 `studio_init_hardware` / `studio_bridge` 会按该接口建立真实仪器，其余校准流程不变。
+
+> 同一台矢网不要被「VNA 面板」和「建库向导真实矢网」两个会话同时占用，命令会交错。单台实机建议二选一。
 
 ---
 
@@ -128,20 +158,26 @@
 
 | 现象 | 可能原因 | 处理 |
 |---|---|---|
-| 连接超时 / 连接被拒 | IP 错、网段不通、防火墙拦 5025、SCPI 服务器未开 | 先 `ping` + `Test-NetConnection -Port 5025` 验端口；开 SCPI 服务器；放行防火墙 |
-| `*IDN?` 返回空或乱码 | 端口不是 SCPI 端口、仪器已停在别的协议 | 确认端口为 SCPI（默认 5025）；换 Anritsu 自定义端口 |
-| 识别厂商=空/未知 | IDN 字符串不含已知关键词 | 手选对应厂商下拉项后重连；把 IDN 发我加关键词 |
-| 取数为空 / 解析报错 | 取数助记符不符（SDAT vs SDATA）或数据格式非 ASCII | 软件已按厂商设定；若仍空，检查仪器是否 `:FORMat:DATA ASCii` 支持，并把报错发我 |
-| 定义测量报错 | 通道/迹线不可用、端口数受限 | 确认通道 1 可用、端口数与 S 参数数量匹配 |
-| 触发后无完成确认 | 触发命令形态不同 | 软件已内置 3 种触发回退；仍失败请把 `:SYST:ERR?` 内容发我 |
+| TCP/IP 连接超时 / 被拒 | IP 错、网段不通、防火墙拦 5025、SCPI 服务器未开 | 先 `ping` + `Test-NetConnection -Port 5025`；开 SCPI；放行防火墙 |
+| GPIB 报「未找到 VISA 运行时」 | 未装 IO Libraries / 装完未重启 | 装 Keysight IO Libraries Suite 并重启 |
+| GPIB 报 `VI_ERROR_LIBRARY_NFOUND` | 依赖 DLL 未加载 | 代码已自动补 DLL 路径；确认 64 位 Python + 64 位 VISA、重启、修复安装 |
+| 「检测 VISA」返回空列表 | 82357B 未插好 / 驱动未装 / 仪器未上电 / GPIB 线松 | 在 Connection Expert 里确认接口与仪器可见 |
+| GPIB 打开资源失败 | 资源名与仪器地址不符 | 用检测按钮读真实资源名；核对板号、主地址（0–30） |
+| `*IDN?` 空或乱码 | 端口/地址不对、仪器处于别的协议 | TCP/IP 核对 SCPI 端口；GPIB 核对地址与远控模式 |
+| 识别厂商=空/未知 | IDN 不含已知关键词 | 手选厂商后重连；把 IDN 发出来补关键词 |
+| 取数为空 / 解析报错 | 助记符不符或数据非 ASCII | 检查 `:FORMat:DATA ASCii` 支持；把报错发出来 |
+| 触发后无完成确认 | 触发命令形态不同 | 已内置 3 种组合 + GPIB 拆分回退；仍失败请提供 `:SYST:ERR?` 内容 |
 
 ---
 
-## 7. 还没覆盖的点（如实机验证后补充）
-- 各家"校准（CAL）状态、端口数、通道数"差异未逐一实测，目前统一按"单通道 4 个 S 参数"处理。
-- 二进制数据块（`SDAT?`/`SDATA?` 的 `<header>#` 格式）暂未支持，统一走 ASCII 文本，速度够用但不如二进制快。
-- 实测后我会根据各家的真实 `*IDN?` 与报错，把命令集收敛到精确版本，并更新本文件。
+## 7. 已知限制与验证状态
+
+- **老式 GPIB 仪器**（如 HP 87xx 系列）使用的不是 ENA/PNA 风格 SCPI，`*IDN?` 未命中时会落到 `generic` profile，测量定义 / 取数命令可能不兼容；需要按具体型号新增 profile。目前 6 个 profile 覆盖的是较新的 SCPI 兼容机型。
+- **仅支持 ASCII 取数**，二进制数据块（`#` 头）暂不支持。GPIB 上大点数扫频会比 LAN 慢，建议先减小点数验证链路。
+- **VNA 配置只在进程内存中**，重启应用后接口/IP/GPIB 地址会回到默认值（TCP/IP 与 GPIB 都是如此，属于既有行为）。
+- 各家校准（CAL）状态、端口数、通道数差异未逐一实测，统一按「单通道 4 个 S 参数」处理。
+- **实机验证状态**：TCP/IP 分支已在 R&S ZNA26（`192.168.2.111:5025`）上验证过；GPIB 分支目前完成的是 mock 仪器全链路测试 + 本机 VISA 运行时加载验证，**82357B 接真机的联调尚未完成**，需要在 Connection Expert 能看到 `GPIB0::xx::INSTR` 后现场确认一次。
 
 ---
 
-*生成日期：2026-11-03 · 对应代码 `tuner/vna_drivers.py` · 版本 TunerLab v0.1.0*
+*更新日期：2026-11-11 · 对应代码 `tuner/vna_drivers.py`、`tuner/web/handlers.py`、`tunerlab_app/pages_vna.py` · 版本 TunerLab v0.5.10*
