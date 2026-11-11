@@ -105,7 +105,8 @@ jobs:
             if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Frozen smoke test timed out' }
             if ($process.ExitCode -ne 0) { throw "Frozen smoke test failed: $($process.ExitCode)" }
             Move-Item dist/TunerLab "dist/TunerLab-$version"
-            Compress-Archive -Path "dist/TunerLab-$version" -DestinationPath "dist/TunerLab-$version-win64.zip"
+            python packaging/archive_windows.py
+            if ($LASTEXITCODE -ne 0) { throw 'ZIP creation failed' }
             python packaging/verify_release.py
             if ($LASTEXITCODE -ne 0) { throw 'Release verification failed' }
             $files = @("dist/TunerLab-$version-win64.zip")
