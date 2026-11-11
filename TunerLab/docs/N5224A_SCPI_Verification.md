@@ -8,17 +8,28 @@
 
 ---
 
-## 0. 两份探测报告的差异（本次报错的真正原因）
+## 0. 多份探测报告的差异（本次报错的真正原因）
 
-| 命令 | 16:53 第一次 | 17:26 第二次 | 说明 |
+现场留了三份探测报告（releases/error1.txt、error2.txt、error3.txt），加上 16:53 的首次探测，**同一台仪器、同一固件、同一条命令，结论在几分钟内反复横跳**：
+
+| 探测时间 | 来源 | `:CALC1:PAR:DEF:EXT 'TL_probe_S11','S11'` | 报告结论 |
 |---|---|---|---|
-| `:CALC1:PAR:DEF:EXT 'TL_probe_S11','S11'` | **OK +0** | +104 Duplicate measurement name | 命令头有效；第二次同名已存在 |
-| `:CALC1:PAR:EXT 'TL_probe_S11','S11'` | +104 | +104 | 与 DEF:EXT 等价（DEFine 可省略） |
+| 16:53 | 首次探测 | **OK +0** | ✅ 识别 DEF:EXT |
+| 17:26 | error1.txt | +104 Duplicate measurement name | ❌ 未找到可用写法 |
+| 17:28 | error2.txt | **OK +0** | ✅ 识别 DEF:EXT |
+| 17:30 | error3.txt | +104 Duplicate measurement name | ❌ 未找到可用写法 |
+
+同一命令不可能一会儿"支持"一会儿"不支持"——**唯一的变量是同名测量 `TL_probe_S11` 是否存在**：探测每次都创建这个固定名字；它被清掉时 DEF:EXT 返回 +0，残留时返回 +104。这就是"报错"随探测次数抖动的根本原因。
+
+| 命令 | +0 的那次 | +104 的那次 | 说明 |
+|---|---|---|---|
+| `:CALC1:PAR:DEF:EXT 'TL_probe_S11','S11'` | **OK +0** | +104 Duplicate measurement name | 命令头有效；同名已存在才 +104 |
+| `:CALC1:PAR:EXT 'TL_probe_S11','S11'` | +104 | +104 | 与 DEF:EXT 等价（DEFine 可省略），同名冲突 |
 | `:CALC1:PAR:DEF 'TL_probe_S11','S11'` | -158 String data not allowed | -158 | 旧 DEF 的 `<param>` 不应加引号；PNA 用 DEF:EXT |
 | `:CALC1:PAR:SDEF` | -113 Undefined header | -113 | R&S 专有，PNA 确实不支持 |
 
 **关键点**：`-113 Undefined header` = 命令头不存在；`+104 Duplicate measurement name` = 命令头和参数都被接受，只是这个名字的测量**已经存在**。
-第一次探测创建了 `TL_probe_S11` 并留在仪器上；第二次探测所有定义候选都撞到这个名字 → 全部 +104 → 旧版探测工具把 +104 当成 REJECT，误报"无可用写法"。
+旧版探测工具把 +104 当成 REJECT，于是"同名残留"被误报成"命令不支持 / 未找到可用写法"。
 
 **连带风险（已修复）**：驱动连接时要定义 S11/S21/S12/S22 四个测量。只要仪器上残留同名测量（面板默认就有 `CH1_S11_1` 等，或上次调试遗留），DEF:EXT 就返回 +104；旧驱动把它当失败并一路回退，最后抛 `failed to define measurement S11`。这才是 0.5.12"还有报错"的来源。
 
