@@ -2,7 +2,7 @@
 
 > 适用范围：TunerLab 桌面端「矢网控制 (VNA)」页、Web 控制台同名页面，以及建库向导里勾选「真实矢网」后的实机采集。
 > 驱动代码：`tuner/vna_drivers.py`。厂商 SCPI 预设由两种接口共用，切换的只是传输层。
-> 更新：2026-11-11（新增 GPIB / Agilent 82357B 支持）。
+> 更新：2026-11-11（新增 GPIB / Agilent 82357B 支持；补充首次 Agilent 真机联调暴露的 SCPI 方言问题与探测脚本）。
 
 ---
 
@@ -24,7 +24,7 @@
 |---|---|---|---|
 | 罗德 R&S | `rsp` | ZNB / ZVA / ZND | 测量定义 `:CALC1:PAR:SDEF`，取数 `SDAT` |
 | Keysight ENA | `keysight_ena` | E5071C / E5080 / E5063 | `:CALC1:PAR:DEF`，取数 `SDATA` |
-| Keysight PNA-X | `keysight_pna` | N5247A / N522x / N523x | 功率 `:SOUR1:POW:LEV:IMM:AMPL` |
+| Keysight PNA-X | `keysight_pna` | N5247A / N522x / N523x | 测量定义 `:CALC1:PAR:DEF:EXT`（**不是** `DEF`）、功率 `:SOUR1:POW:LEV:IMM:AMPL` |
 | 思仪 Ceyear | `ceyear` | AV3672 系列 | ENA 风格 SCPI |
 | 安立 Anritsu | `anritsu` | VectorStar MS46xxx / ShockLine | ENA 风格 SCPI |
 | 自动识别 | `auto` | — | 连接后读 `*IDN?` 自动判断（**推荐**） |
@@ -99,7 +99,7 @@ cd D:\Tuner
 
 #### Keysight N5247A（PNA / PNA-X）
 - **System → System Setup → Network Setup** 设置 IP；启用 SCPI Server（5025）。
-- 功率命令 `:SOUR1:POW:LEV:IMM:AMPL`；软件固定定义 4 个 S 参数，需保证通道 1 可用。
+- 测量定义必须用 `:CALC1:PAR:DEF:EXT 'S11','S11'`（或 `:CALC1:PAR:EXT`）；裸 `:CALC1:PAR:DEF` 在 PNA 命令树上不存在，会回 `-113 Undefined header`。功率命令 `:SOUR1:POW:LEV:IMM:AMPL`；软件固定定义 4 个 S 参数，需保证通道 1 可用。
 
 #### 思仪 Ceyear（AV3672）
 - **系统 → 通信设置 → LAN / 网络** 配置并启用远程；ENA 风格 SCPI，端口 5025。
@@ -118,7 +118,7 @@ cd D:\Tuner
 | 数据格式 | `:FORMat:DATA ASCii` |
 | 扫频类型 | `:SENS1:SWE:TYPE LIN` |
 | 连续触发关 | `:INIT1:CONT OFF` |
-| 定义 S11 | `:CALC1:PAR:DEF 'S11','S11'`（R&S 用 `SDEF`） |
+| 定义 S11 | 依次尝试 `:CALC1:PAR:DEF` / `:CALC1:PAR:SDEF` / `:CALC1:PAR:DEF:EXT` / `:CALC1:PAR:EXT`（均带 `'S11','S11'`），命中后本会话复用该写法 |
 | 选迹线 | `:CALC1:PAR:SEL 'S11'` |
 | 起始频率 | `:SENS1:FREQ:STAR <Hz>` |
 | 终止频率 | `:SENS1:FREQ:STOP <Hz>` |
@@ -130,7 +130,7 @@ cd D:\Tuner
 | 读错误队列 | `:SYST:ERR?` |
 
 **容错机制**
-- **测量定义**：先发 `SDEF`，若 `:SYST:ERR?` 报错则改发 `DEF`（反之亦然）。
+- **测量定义（4 种方言自动协商）**：按 `DEF` → `SDEF` → `DEF:EXT` → `EXT` 顺序尝试，每条命令前后都发 `*CLS` 清空错误队列，再用 `:SYST:ERR?` 判定该命令是否被接受；命中后缓存该写法，S21/S12/S22 直接复用。R&S 认 `SDEF`，Keysight PNA / PNA-X 认 `DEF:EXT` / `EXT`，ENA 与多数国产机型认 `DEF`。逐条清队列很重要：真实仪器对每条不认识的命令都会压入一个 `-113`，残留条目会让下一条本来有效的命令被误判为失败。四条全被拒时抛 `failed to define measurement ...`（异常里列出所有试过的命令），仪器面板通常显示 `-113 Undefined header`。
 - **触发**：依次尝试 3 种 `:INIT…;*OPC?` 组合；若都失败（部分 GPIB 老仪器不接受「触发 + 查询」拼在同一条消息里），再退化为「单独发触发命令 → 单独查询 `*OPC?`」。
 - **错误探查**：写命令后查 `:SYST:ERR?`；仪器不支持错误队列时读取失败会被忽略，不会中断连接。
 
@@ -165,6 +165,7 @@ cd D:\Tuner
 | GPIB 打开资源失败 | 资源名与仪器地址不符 | 用检测按钮读真实资源名；核对板号、主地址（0–30） |
 | `*IDN?` 空或乱码 | 端口/地址不对、仪器处于别的协议 | TCP/IP 核对 SCPI 端口；GPIB 核对地址与远控模式 |
 | 识别厂商=空/未知 | IDN 不含已知关键词 | 手选厂商后重连；把 IDN 发出来补关键词 |
+| **「failed to define measurement S11」+ 仪器 `-113 Undefined header`** | **命令头在该机型上不存在（SCPI 方言不匹配）**，不是参数错、也不是固件版本校验失败 | 跑第 8 节的探测脚本拿 `*IDN?` 与可用命令表；按结果调整 profile。已内置 PNA 的 `DEF:EXT` / `EXT` 回退，重连试试 |
 | 取数为空 / 解析报错 | 助记符不符或数据非 ASCII | 检查 `:FORMat:DATA ASCii` 支持；把报错发出来 |
 | 触发后无完成确认 | 触发命令形态不同 | 已内置 3 种组合 + GPIB 拆分回退；仍失败请提供 `:SYST:ERR?` 内容 |
 
@@ -172,12 +173,35 @@ cd D:\Tuner
 
 ## 7. 已知限制与验证状态
 
-- **老式 GPIB 仪器**（如 HP 87xx 系列）使用的不是 ENA/PNA 风格 SCPI，`*IDN?` 未命中时会落到 `generic` profile，测量定义 / 取数命令可能不兼容；需要按具体型号新增 profile。目前 6 个 profile 覆盖的是较新的 SCPI 兼容机型。
+- **老式 / 非 ENA 风格仪器**（如 HP 87xx 系列）使用的不是 ENA/PNA 风格 SCPI，`*IDN?` 未命中时会落到 `generic` profile。测量定义现已覆盖 4 种写法，但**逐迹线语法**（`:CALC1:PAR1:DEF S11`）、取数助记符（部分机型用 `:CALC1:TRAC1:DATA?`）、功率 / IFBW 命令仍可能不兼容，需要按具体型号新增 profile。目前 6 个 profile 覆盖的是较新的 SCPI 兼容机型。
 - **仅支持 ASCII 取数**，二进制数据块（`#` 头）暂不支持。GPIB 上大点数扫频会比 LAN 慢，建议先减小点数验证链路。
 - **VNA 配置只在进程内存中**，重启应用后接口/IP/GPIB 地址会回到默认值（TCP/IP 与 GPIB 都是如此，属于既有行为）。
 - 各家校准（CAL）状态、端口数、通道数差异未逐一实测，统一按「单通道 4 个 S 参数」处理。
-- **实机验证状态**：TCP/IP 分支已在 R&S ZNA26（`192.168.2.111:5025`）上验证过；GPIB 分支目前完成的是 mock 仪器全链路测试 + 本机 VISA 运行时加载验证，**82357B 接真机的联调尚未完成**，需要在 Connection Expert 能看到 `GPIB0::xx::INSTR` 后现场确认一次。
+- **实机验证状态**：TCP/IP 分支已在 R&S ZNA26（`192.168.2.111:5025`）上验证过。**2026-11-11 首次在 Agilent N4225A 上做 TCP/IP 联调**，暴露出测量定义只有 `DEF`/`SDEF` 两种写法、PNA 系机型两条都回 `-113`；已补上 `DEF:EXT` / `EXT` 回退与错误队列清理，但**尚未在该机型上复测**（缺 `*IDN?` 原文与真机命令表）。GPIB 分支目前完成的是 mock 仪器全链路测试 + 本机 VISA 运行时加载验证，**82357B 接真机的联调尚未完成**，需要在 Connection Expert 能看到 `GPIB0::xx::INSTR` 后现场确认一次。
 
 ---
 
-*更新日期：2026-11-11 · 对应代码 `tuner/vna_drivers.py`、`tuner/web/handlers.py`、`tunerlab_app/pages_vna.py` · 版本 TunerLab v0.5.10*
+## 8. 真机 SCPI 方言探测（排障首选）
+
+连接报 `failed to define measurement ...`、或仪器面板出现 `-113` 时，**先不要升级固件**，用探测脚本查清这台机器到底认什么命令：
+
+```powershell
+cd D:\Tuner
+.\.venv\Scripts\python verification\probe_vna_scpi.py --host 192.168.2.111 --port 5025
+.\.venv\Scripts\python verification\probe_vna_scpi.py --interface gpib --resource GPIB0::17::INSTR
+# 需要机器可读结果时加 --json
+```
+
+脚本输出三部分：
+
+1. `*IDN?` / `*OPT?` —— 真实型号与**固件版本**，用来回答「是不是版本太旧」；
+2. 6 种测量定义写法哪些被接受（被拒的逐条标 `REJECT` 并显示错误队列内容）；
+3. 扫频、功率、IFBW、触发、取数助记符（SDATA / SDAT / TRACe / MEASure）的可用情况。
+
+它只发查询和无害配置命令，不发 `*RST`；但探测「测量定义」时会创建 `TL_probe_*` 测量 / 改动迹线 1 的参数，跑完按需在前面板恢复。把输出整段发回来，即可按真实命令集固化专用 profile。
+
+**关于「-113 是不是固件太旧」**：-113 的规范定义是「命令头语法合法，但本设备未定义该命令」。升级固件**不会**让仪器凭空支持另一套命令树，正确做法是按 `*IDN?` 换语法。只有当 IDN 显示固件确实停留在很早期版本、且该机型手册确认新固件才加入对应命令时，升级才有意义——**先探测，再决定**。
+
+---
+
+*更新日期：2026-11-11 · 对应代码 `tuner/vna_drivers.py`、`tuner/web/handlers.py`、`tunerlab_app/pages_vna.py`、`verification/probe_vna_scpi.py` · 版本 TunerLab v0.5.10*

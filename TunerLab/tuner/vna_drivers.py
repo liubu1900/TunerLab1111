@@ -360,7 +360,9 @@ _VENDOR_PROFILES = {
         'trigger_cmd': ':INIT1:IMM',
     },
     'keysight_pna': {   # PNA / PNA-X (N5247A, ...)
-        'define_cmd': ':CALC1:PAR:DEF',
+        # PNA creates *named* measurements with DEFine:EXTended; the plain
+        # CALC1:PAR:DEF header is not defined on that command tree (-113).
+        'define_cmd': ':CALC1:PAR:DEF:EXT',
         'fetch_mnemonic': 'SDATA',
         'power_cmd': ':SOUR1:POW:LEV:IMM:AMPL',
         'ifbw_cmd': ':SENS1:BAND',
@@ -534,19 +536,38 @@ class TCPVNA:
         self._select('S11')
 
     def _define_measurement(self, name: str, param: str) -> None:
-        # Both the trace/measurement name and the S-parameter are quoted; every
-        # supported family accepts quoted strings (R&S is the strict one).
-        candidates = [f"{self._define_cmd} '{name}','{param}'"]
-        # Add the sibling form so R&S (SDEF) vs others (DEF) both work.
-        if self._define_cmd.endswith('SDEF'):
-            candidates.append(f":CALC1:PAR:DEF '{name}','{param}'")
-        else:
-            candidates.append(f":CALC1:PAR:SDEF '{name}','{param}'")
-        for cmd in candidates:
+        """Create a named measurement, trying every SCPI dialect we know.
+
+        ``CALC1:PAR:DEF 'name','param'`` is NOT universal.  R&S uses
+        ``CALC1:PAR:SDEF``; Keysight PNA / PNA-X use
+        ``CALC1:PAR:DEF:EXT`` (or the short form ``CALC1:PAR:EXT``), and older
+        ENA firmware expects a trace suffix (``PAR1:DEF``), which is a
+        different model handled by a dedicated profile.  An unsupported header
+        makes the instrument queue ``-113,"Undefined header"``.
+
+        Every attempt clears the error queue *before and after*: a real
+        analyzer queues one error per rejected command, so a leftover -113
+        from the previous candidate would otherwise poison the verdict of the
+        next (possibly valid) one.
+        """
+        headers = [self._define_cmd]
+        for extra in (':CALC1:PAR:DEF', ':CALC1:PAR:SDEF',
+                      ':CALC1:PAR:DEF:EXT', ':CALC1:PAR:EXT'):
+            if extra not in headers:
+                headers.append(extra)
+        tried: list[str] = []
+        for header in headers:
+            cmd = f"{header} '{name}','{param}'"
+            tried.append(cmd)
+            self.transport.write('*CLS')
             self.transport.write(cmd)
-            if self._check_error() is None:
+            accepted = self._check_error() is None
+            self.transport.write('*CLS')
+            if accepted:
+                # Reuse the working dialect for S21/S12/S22 in this session.
+                self._define_cmd = header
                 return
-        raise RuntimeError(f'failed to define measurement {name} (tried {candidates})')
+        raise RuntimeError(f'failed to define measurement {name} (tried {tried})')
 
     def _select(self, name: str) -> None:
         self._send_optional(f":CALC1:PAR:SEL '{name}'")
