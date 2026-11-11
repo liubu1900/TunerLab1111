@@ -97,22 +97,33 @@ jobs:
         working-directory: TunerLabApp
         shell: pwsh
         run: |
-          $version = python -c "from tunerlab_app.version import __version__; print(__version__)"
-          $fileVersion = (Get-Item dist/TunerLab/TunerLab.exe).VersionInfo.FileVersion
-          if ($fileVersion -ne "$version.0") { throw "EXE version mismatch: $fileVersion" }
-          $process = Start-Process -FilePath dist/TunerLab/TunerLab.exe -ArgumentList '--smoke-test' -PassThru
-          if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Frozen smoke test timed out' }
-          if ($process.ExitCode -ne 0) { throw "Frozen smoke test failed: $($process.ExitCode)" }
-          Move-Item dist/TunerLab "dist/TunerLab-$version"
-          Compress-Archive -Path "dist/TunerLab-$version" -DestinationPath "dist/TunerLab-$version-win64.zip"
-          python packaging/verify_release.py
-          if ($LASTEXITCODE -ne 0) { throw 'Release verification failed' }
-          $files = @("dist/TunerLab-$version-win64.zip")
-          $checksums = $files | ForEach-Object {
-            $hash = Get-FileHash $_ -Algorithm SHA256
-            "$($hash.Hash.ToLower())  $([IO.Path]::GetFileName($_))"
+          try {
+            $version = python -c "from tunerlab_app.version import __version__; print(__version__)"
+            $fileVersion = (Get-Item dist/TunerLab/TunerLab.exe).VersionInfo.FileVersion
+            if ($fileVersion -ne "$version.0") { throw "EXE version mismatch: $fileVersion" }
+            $process = Start-Process -FilePath dist/TunerLab/TunerLab.exe -ArgumentList '--smoke-test' -PassThru
+            if (-not $process.WaitForExit(60000)) { $process.Kill(); throw 'Frozen smoke test timed out' }
+            if ($process.ExitCode -ne 0) { throw "Frozen smoke test failed: $($process.ExitCode)" }
+            Move-Item dist/TunerLab "dist/TunerLab-$version"
+            Compress-Archive -Path "dist/TunerLab-$version" -DestinationPath "dist/TunerLab-$version-win64.zip"
+            python packaging/verify_release.py
+            if ($LASTEXITCODE -ne 0) { throw 'Release verification failed' }
+            $files = @("dist/TunerLab-$version-win64.zip")
+            $checksums = $files | ForEach-Object {
+              $hash = Get-FileHash $_ -Algorithm SHA256
+              "$($hash.Hash.ToLower())  $([IO.Path]::GetFileName($_))"
+            }
+            [IO.File]::WriteAllText((Join-Path $PWD "dist/TunerLab-$version-SHA256SUMS.txt"), ($checksums -join "`n") + "`n", [Text.Encoding]::ASCII)
+          } catch {
+            $detail = ($_ | Out-String).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Frozen Windows package check failed::$detail"
+            $log = Join-Path $env:LOCALAPPDATA 'TunerLab/logs/tunerlab.log'
+            if (Test-Path $log) {
+              $tail = (Get-Content $log -Tail 70 | Out-String).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error title=Frozen application log::$tail"
+            }
+            throw
           }
-          [IO.File]::WriteAllText((Join-Path $PWD "dist/TunerLab-$version-SHA256SUMS.txt"), ($checksums -join "`n") + "`n", [Text.Encoding]::ASCII)
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Windows' && success()
         with:
