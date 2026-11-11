@@ -73,23 +73,49 @@ class MockZmotionLink:
     """
 
     def __init__(self, axes: Sequence[str], ip: str = 'virtual://zmotion',
-                 firmware: str = 'VIRTUAL-2.9600'):
+                 firmware: str = 'VIRTUAL-2.9600', axis_base: int = 0):
         self.axes = tuple(axes)
         self.ip = ip
         self.firmware = firmware
         self.connected = False
+        #: Physical controller axis numbers owned by this tuner.  The link's
+        #: dictionaries are keyed by physical axis, like the real driver.
+        self.axis_base = int(axis_base)
+        physical = range(self.axis_base, self.axis_base + len(self.axes))
         #: Per-axis status words; zero means "healthy".
-        self.status_words: dict[int, int] = {index: 0 for index in range(len(axes))}
+        self.status_words: dict[int, int] = {index: 0 for index in physical}
         #: Per-axis stop reasons.
-        self.stop_reasons: dict[int, int] = {index: 0 for index in range(len(axes))}
+        self.stop_reasons: dict[int, int] = {index: 0 for index in physical}
         #: Per-axis homing state.
-        self.homed: dict[int, bool] = {index: False for index in range(len(axes))}
+        self.homed: dict[int, bool] = {index: False for index in physical}
         #: Per-axis measured speed (virtual units per second).
-        self.speeds: dict[int, float] = {index: 0.0 for index in range(len(axes))}
+        self.speeds: dict[int, float] = {index: 0.0 for index in physical}
         #: Per-axis drive enable flag.
-        self.enabled: dict[int, int] = {index: 1 for index in range(len(axes))}
+        self.enabled: dict[int, int] = {index: 1 for index in physical}
         #: The controller error number reported by the virtual controller.
         self.error_code: int | None = None
+        #: Positions are a *logical* vector; ``_backend`` replaces it with the
+        #: mock motion backend's array.
+        self._positions = np.zeros(len(self.axes), dtype=float)
+
+    def retarget(self, axes: Sequence[str], axis_base: int) -> None:
+        """Move this link to another tuner's axis block.
+
+        The link models the *controller*, so it stays the same object when the
+        other tuner takes over.  Only the axis block it answers for changes.
+        """
+        self.axes = tuple(axes)
+        self.axis_base = int(axis_base)
+        physical = range(self.axis_base, self.axis_base + len(self.axes))
+        self.status_words = {index: 0 for index in physical}
+        self.stop_reasons = {index: 0 for index in physical}
+        self.homed = {index: False for index in physical}
+        self.speeds = {index: 0.0 for index in physical}
+        self.enabled = {index: 1 for index in physical}
+        self._positions = np.zeros(len(self.axes), dtype=float)
+
+    def _logical(self, index: int) -> int:
+        return int(index) - self.axis_base
 
     # -- lifecycle -------------------------------------------------------
     def open(self, ip: str | None = None, timeout: float = 3.0,
@@ -119,10 +145,10 @@ class MockZmotionLink:
         return True
 
     def get_dpos(self, index: int) -> float:
-        return self._positions[index]
+        return self._positions[self._logical(index)]
 
     def get_mpos(self, index: int) -> float:
-        return self._positions[index]
+        return self._positions[self._logical(index)]
 
     def axis_stop_reason(self, index: int) -> int:
         return int(self.stop_reasons.get(index, 0))
@@ -134,13 +160,19 @@ class MockZmotionLink:
         return float(self.speeds.get(index, 0.0))
 
     def read_all_axis_info(self, count: int) -> dict[str, np.ndarray]:
-        return {
-            'idle': np.ones(count, dtype=int),
-            'dpos': np.array([self.get_dpos(i) for i in range(count)], dtype=float),
-            'mpos': np.array([self.get_mpos(i) for i in range(count)], dtype=float),
-            'status': np.array([int(self.status_words.get(i, 0))
-                                for i in range(count)], dtype=int),
-        }
+        """Bulk info for physical axes ``0..count-1`` (see the real driver)."""
+        idle = np.ones(count, dtype=int)
+        dpos = np.zeros(count, dtype=float)
+        mpos = np.zeros(count, dtype=float)
+        status = np.zeros(count, dtype=int)
+        for logical in range(len(self.axes)):
+            physical = self.axis_base + logical
+            if physical >= count:
+                continue
+            dpos[physical] = self.get_dpos(physical)
+            mpos[physical] = self.get_mpos(physical)
+            status[physical] = int(self.status_words.get(physical, 0))
+        return {'idle': idle, 'dpos': dpos, 'mpos': mpos, 'status': status}
 
     def read_error_code(self) -> dict[str, object]:
         return {
@@ -150,8 +182,8 @@ class MockZmotionLink:
             'raw': '' if self.error_code is None else str(self.error_code),
         }
 
-    # The positions live on the controller, as they do on the real one.
-    _positions: dict[int, float] = {}
+    # Positions are held per link instance (see ``__init__``), never shared
+    # between the two virtual tuners.
 
 
 class MockZmotionController:
@@ -166,12 +198,16 @@ class MockZmotionController:
     def __init__(self, config: TunerConfig,
                  axis_params: dict[str, AxisParams] | None = None,
                  axis_count: int | None = None,
-                 motion: MotionController | None = None):
+                 motion: MotionController | None = None,
+                 *, axis_base: int = 0, op_base: int = 0,
+                 link: 'MockZmotionLink | None' = None):
         self.config = config
         if axis_count is None:
             axis_count = len(config.axes)
         self.axes = tuner_axes(axis_count)
         self.axis_params = dict(axis_params or {})
+        self.axis_base = int(axis_base)
+        self.op_base = int(op_base)
         self.initialized = False
         self.homed = False
         self.homed_axes: set[str] = set()
@@ -182,7 +218,39 @@ class MockZmotionController:
         #: "the command scale and the feedback scale agree".
         self.feedback_ratio = 1.0
         self._motion = motion
-        self.link = MockZmotionLink(self.axes)
+        # One controller drives both virtual tuners, so the link is reused
+        # when the other tuner takes over.  A fresh link would make the
+        # console look as if the controller had been re-opened.
+        if link is not None:
+            self.link = link
+            self.link.retarget(self.axes, self.axis_base)
+        else:
+            self.link = MockZmotionLink(self.axes, axis_base=self.axis_base)
+
+    # -- logical <-> physical axis mapping (mirrors ZmotionMotionController) --
+    @property
+    def physical_axes(self) -> tuple[int, ...]:
+        return tuple(self.axis_base + index for index in range(len(self.axes)))
+
+    def physical_axis(self, axis: str | int) -> int:
+        if isinstance(axis, str):
+            try:
+                logical = self.axes.index(axis)
+            except ValueError as exc:
+                raise ValueError(
+                    f'unknown axis {axis!r}; expected one of {self.axes}') from exc
+        else:
+            logical = int(axis)
+            if not 0 <= logical < len(self.axes):
+                raise ValueError(f'logical axis index {logical} out of range')
+        return self.axis_base + logical
+
+    def output(self, axis: str | int) -> int:
+        logical = self.axes.index(axis) if isinstance(axis, str) else int(axis)
+        return self.op_base + logical
+
+    def axis_map(self) -> dict[str, int]:
+        return {name: self.physical_axis(name) for name in self.axes}
 
     # -- lifecycle -------------------------------------------------------
     def initialize(self):
@@ -193,13 +261,13 @@ class MockZmotionController:
 
     def refresh_home_state(self) -> set[str]:
         self.homed_axes = {name for index, name in enumerate(self.axes)
-                           if self.link.home_status(index) == 1}
+                           if self.link.home_status(self.physical_axis(index)) == 1}
         self.homed = len(self.homed_axes) == len(self.axes)
         return set(self.homed_axes)
 
     def all_axes_homed(self) -> bool:
-        return all(self.link.home_status(index) == 1
-                   for index in range(len(self.axes)))
+        return all(self.link.home_status(axis) == 1
+                   for axis in self.physical_axes)
 
     def scale_is_consistent(self, axis: str) -> bool:
         """The simulated axes always travel exactly as far as they are told."""
@@ -234,7 +302,7 @@ class MockZmotionController:
         """
         if axis not in self.axes:
             raise ValueError(f'unknown axis: {axis}')
-        index = self.axes.index(axis)
+        index = self.physical_axis(axis)
         self.link.status_words[index] = int(
             self.link.status_words.get(index, 0)) | (1 << int(bit))
         self.link.stop_reasons[index] = self.link.status_words[index]
@@ -288,7 +356,7 @@ class MockZmotionController:
             raise MotionError('a motion fault is latched; reset it before homing')
         motion = self._backend()
         motion.home()
-        for index in range(len(self.axes)):
+        for index in self.physical_axes:
             self.link.homed[index] = True
         self.refresh_home_state()
         return self.read_position()
@@ -316,10 +384,10 @@ class MockZmotionController:
                     f'home every probe axis before X: not homed: '
                     f'{", ".join(unreferenced)}')
         motion = self._backend()
-        index = self.axes.index(axis)
-        motion._position[index] = motion.config.x_limits[0] if axis == 'X' \
+        logical = self.axes.index(axis)
+        motion._position[logical] = motion.config.x_limits[0] if axis == 'X' \
             else motion.config.safe_z  # type: ignore[attr-defined]
-        self.link.homed[index] = True
+        self.link.homed[self.physical_axis(axis)] = True
         self.homed_axes.add(axis)
         self.homed = len(self.homed_axes) == len(self.axes)
         return self.read_position()
@@ -452,16 +520,18 @@ class MockZmotionController:
     def axis_status_snapshot(self, detailed: bool = False) -> list[dict[str, float]]:
         if not self.link.connected:
             raise MotionError('controller is not connected')
-        info = self.link.read_all_axis_info(len(self.axes))
+        info = self.link.read_all_axis_info(self.axis_base + len(self.axes))
         snapshot = []
         for index, name in enumerate(self.axes):
-            status = int(info['status'][index])
-            stop_reason = int(self.link.axis_stop_reason(index))
-            dpos = float(info['dpos'][index])
-            mpos = float(info['mpos'][index])
+            physical = self.physical_axis(index)
+            status = int(info['status'][physical])
+            stop_reason = int(self.link.axis_stop_reason(physical))
+            dpos = float(info['dpos'][physical])
+            mpos = float(info['mpos'][physical])
             entry: dict[str, float] = {
                 'axis': name,
-                'idle': int(info['idle'][index]),
+                'physical_axis': physical,
+                'idle': int(info['idle'][physical]),
                 'dpos': dpos,
                 'mpos': mpos,
                 'following_error': dpos - mpos,
@@ -471,12 +541,12 @@ class MockZmotionController:
                 'status_fault': has_fault(status),
                 'stop_reason': stop_reason,
                 'stop_reason_text': describe_stop_reason(stop_reason),
-                'home_status': float(self.link.home_status(index)),
-                'homed': self.link.home_status(index) == 1,
+                'home_status': float(self.link.home_status(physical)),
+                'homed': self.link.home_status(physical) == 1,
             }
             if detailed:
-                entry['enable'] = int(self.link.axis_enable(index))
-                entry['speed'] = float(self.link.measured_speed(index))
+                entry['enable'] = int(self.link.axis_enable(physical))
+                entry['speed'] = float(self.link.measured_speed(physical))
             snapshot.append(entry)
         return snapshot
 

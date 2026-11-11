@@ -27,12 +27,13 @@ from PySide6.QtWidgets import (
 )
 
 from .axis_params import (
-    AxisParams, CONTROLLER_AXES, TUNER_MODELS, axis_index,
+    AxisParams, CONTROLLER_AXES, TUNER_MODELS,
     default_axis_params, tuner_axes, COORDINATE_FIELDS,
 )
 from .motion import MotionError
 from .operation_log import operation_log
 from .settings import SettingsStore, TunerSettings
+from .tuner_units import TunerUnit, axis_map_text
 from .ui_theme import numeric_font, text_font
 from .mock_hardware import MockZmotionController, build_virtual_config
 from .zmotion import ZmotionController, ZmotionError, probe_controller
@@ -133,6 +134,9 @@ class HardwareSession(QObject):
             if changed & self._HOME_INVALIDATING:
                 home_invalidated.add(name)
         self.settings.axes = merged
+        # Keep the per-tuner map in sync, so switching to the other tuner and
+        # back does not resurrect the pre-edit parameters.
+        self.settings.axes_by_unit[self.settings.active_unit] = dict(merged)
         if home_invalidated and self.controller is not None:
             for name in home_invalidated:
                 self.controller.homed_axes.discard(name)
@@ -163,6 +167,93 @@ class HardwareSession(QObject):
         """Number of probe axes, i.e. the axes besides the shared X axis."""
         return self.settings.probe_count
 
+    # -- tuner units -----------------------------------------------------
+    @property
+    def units(self) -> dict[str, TunerUnit]:
+        """All configured tuners, keyed by their unit key."""
+        return self.settings.units
+
+    @property
+    def active_unit(self) -> TunerUnit:
+        """The tuner the console currently commands."""
+        return self.settings.unit
+
+    def available_units(self) -> list[dict[str, object]]:
+        """Serializable description of every configured tuner."""
+        clashes = self.settings.overlapping_units()
+        return [
+            {
+                'key': unit.key,
+                'label': unit.label,
+                'axis_base': unit.axis_base,
+                'axis_count': unit.axis_count,
+                'axes': list(unit.axes),
+                'physical_axes': list(unit.physical_axes),
+                'axis_map': unit.axis_map(),
+                'op_base': unit.op_base,
+                'datum_in_base': unit.datum_in_base,
+                'active': unit.key == self.settings.active_unit,
+                'overlaps': clashes.get(unit.key, []),
+            }
+            for unit in self.settings.units.values()
+        ]
+
+    def set_active_unit(self, key: str) -> None:
+        """Select which tuner the console commands.
+
+        The link is *not* reopened: one controller drives both tuners, so only
+        the motion backend is rebuilt with the new tuner's physical axis block.
+        The homing state is dropped, because the controller reports the homing
+        of the new axes only after they were homed themselves.
+        """
+        key = str(key)
+        if key not in self.settings.units:
+            raise ValueError(f'unknown tuner unit {key!r}; '
+                             f'expected one of {sorted(self.settings.units)}')
+        if key == self.settings.active_unit:
+            return
+        previous = self.settings.unit
+        self.settings.set_unit(key)
+        self.save_settings()
+        self._rebuild_controller()
+        self.settings_changed.emit()
+        self.connection_changed.emit(self.connected)
+        operation_log.info(
+            '系统', '切换 Tuner',
+            f'{previous.label} → {self.active_unit.label} · '
+            f'物理轴 {", ".join(str(a) for a in self.active_unit.physical_axes)}',
+            unit=key, previous=previous.key)
+
+    def _rebuild_controller(self) -> None:
+        """Rebuild the motion backend for the active tuner.
+
+        The link stays open.  Only the axis block, the axis set and the wiring
+        offsets change, so this is cheap and does not disturb the machine.
+        """
+        if self.controller is None:
+            return
+        unit = self.active_unit
+        count = unit.axis_count
+        axes = self.settings.unit_axes()
+        if self.controller.simulated:
+            controller = MockZmotionController(
+                build_virtual_config(axes, axis_count=count),
+                axes, axis_count=count,
+                axis_base=unit.axis_base, op_base=unit.op_base,
+                link=self.controller.link)
+            controller.initialize()
+            controller.home()
+            self.controller = controller
+            # The link models the controller, not the tuner: it stays the
+            # same object, only the axis block it answers for changes.
+            self.link = controller.link
+            return
+        self.controller = ZmotionMotionController(
+            build_tuner_config(axes, axis_count=count),
+            self.link, axes, axis_count=count,
+            axis_base=unit.axis_base, op_base=unit.op_base,
+            datum_in_base=unit.datum_in_base)
+
     def set_axis_count(self, axis_count: int) -> None:
         """Switch the tuner model and persist it.
 
@@ -176,16 +267,16 @@ class HardwareSession(QObject):
                 f'unsupported axis count {count}; expected one of {sorted(TUNER_MODELS)}')
         if count == self.settings.axis_count:
             return
-        self.settings.axis_count = count
-        # Make sure every axis of the new model has parameters.
-        for name, params in default_axis_params(count).items():
-            self.settings.axes.setdefault(name, params)
+        self.settings.set_unit_axis_count(self.settings.active_unit, count)
         self.save_settings()
-        if self.controller is not None:
-            self.controller = ZmotionMotionController(
-                build_tuner_config(self.settings.axes, axis_count=count),
-                self.link, self.settings.axes, axis_count=count)
+        self._rebuild_controller()
         self.settings_changed.emit()
+        clashes = self.settings.overlapping_units()
+        if clashes:
+            operation_log.warn(
+                '系统', '切换 tuner 型号',
+                f'{count} 轴后两台 Tuner 的物理轴有重叠，'
+                '请确认接线（当前机器只运行一种型号）')
         operation_log.info('系统', '切换 tuner 型号',
                            f'{count} 轴: {", ".join(tuner_axes(count))}',
                            axis_count=count)
@@ -214,40 +305,48 @@ class HardwareSession(QObject):
         try:
             self.link.open(target_ip)
             self.settings.connection.ip = target_ip
+            unit = self.active_unit
+            axes = self.settings.unit_axes()
             self.controller = ZmotionMotionController(
-                build_tuner_config(self.settings.axes,
-                                   axis_count=self.settings.axis_count),
-                self.link, self.settings.axes,
-                axis_count=self.settings.axis_count)
+                build_tuner_config(axes, axis_count=unit.axis_count),
+                self.link, axes,
+                axis_count=unit.axis_count,
+                axis_base=unit.axis_base, op_base=unit.op_base,
+                datum_in_base=unit.datum_in_base)
             self.controller.initialize()
         except Exception as exc:  # noqa: BLE001
             operation_log.exception('通讯', '连接控制器', exc, ip=target_ip)
             raise
         self.connection_changed.emit(True)
-        message = f'已连接 {target_ip} · 固件 {self.link.firmware or "未知"}'
+        message = (f'已连接 {target_ip} · 固件 {self.link.firmware or "未知"} · '
+                   f'{unit.label} 轴 {", ".join(str(a) for a in unit.physical_axes)}')
         self.status_changed.emit(message)
         operation_log.info('通讯', '连接控制器',
-                           f'{target_ip} · 固件 {self.link.firmware or "未知"}',
-                           ip=target_ip, firmware=self.link.firmware)
+                           f'{target_ip} · 固件 {self.link.firmware or "未知"} · '
+                           f'{unit.label}',
+                           ip=target_ip, firmware=self.link.firmware, unit=unit.key)
 
     def _connect_virtual(self) -> None:
         """Connect the simulated controller and seed it with plausible data."""
+        unit = self.active_unit
+        axes = self.settings.unit_axes()
         controller = MockZmotionController(
-            build_virtual_config(self.settings.axes,
-                                 axis_count=self.settings.axis_count),
-            self.settings.axes, axis_count=self.settings.axis_count)
+            build_virtual_config(axes, axis_count=unit.axis_count),
+            axes, axis_count=unit.axis_count,
+            axis_base=unit.axis_base, op_base=unit.op_base)
         controller.initialize()
         controller.home()
         self.controller = controller
         self.link = controller.link
         self.connection_changed.emit(True)
-        axes = ', '.join(self.axes)
-        message = f'虚拟控制器已连接 · 型号 {self.settings.axis_count} 轴 ({axes})'
+        axes_text = ', '.join(self.axes)
+        message = (f'虚拟控制器已连接 · {unit.label} '
+                   f'轴 {", ".join(str(a) for a in unit.physical_axes)} ({axes_text})')
         self.status_changed.emit(message)
         operation_log.info('通讯', '连接虚拟控制器',
-                           f'{self.settings.axis_count} 轴 ({axes})，'
-                           '已自动回零并生成初始位置',
-                           axis_count=self.settings.axis_count)
+                           f'{unit.label} 轴 {", ".join(str(a) for a in unit.physical_axes)}'
+                           f' ({axes_text})，已自动回零并生成初始位置',
+                           unit=unit.key, axis_count=unit.axis_count)
 
     @property
     def mode(self) -> str:
@@ -833,7 +932,10 @@ class AxisMotionPage(_Page):
 
     def _build_axis_panel(self, axis: str) -> QWidget:
         """A self-contained panel: home light, vertical position bar, jog, absolute, home, probe."""
-        panel = QGroupBox(axis)
+        # The title carries the controller axis number, because that is what
+        # the vendor tool shows and what the wiring diagrams use.
+        physical = self._physical_axis_hint(axis)
+        panel = QGroupBox(axis if physical is None else f'{axis} · 轴 {physical}')
         vbox = QVBoxLayout(panel)
         vbox.setSpacing(6)
 
@@ -915,6 +1017,18 @@ class AxisMotionPage(_Page):
             entry['panel'].deleteLater()
         self._build_axis_panels()
 
+    def _physical_axis_hint(self, axis: str) -> int | None:
+        """Controller axis number of ``axis``, when it is known.
+
+        The number comes from the active tuner's wiring, so it is right even
+        while the controller is disconnected -- which is exactly when the
+        operator needs to check it against the cable diagram.
+        """
+        try:
+            return self.session.active_unit.physical_axis(axis)
+        except Exception:  # noqa: BLE001 - a hint must never break the panel
+            return None
+
     def refresh_positions(self) -> None:
         """Poll the controller for positions; silently skips when not connected."""
         controller = self.session.controller
@@ -964,7 +1078,8 @@ class AxisMotionPage(_Page):
     def _jog(self, axis: str, delta: float) -> None:
         controller = self.session.require_controller()
         try:
-            controller.move_axis_to(axis, controller.link.get_dpos(axis_index(axis)) + delta)
+            controller.move_axis_to(axis, controller.link.get_dpos(
+                controller.physical_axis(axis)) + delta)
         except Exception as exc:  # noqa: BLE001
             operation_log.exception('运动', '点动', exc, axis=axis, delta=delta)
             raise

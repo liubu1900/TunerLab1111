@@ -39,7 +39,6 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from tuner.axis_params import axis_index
 from tuner.motion import MotionError
 from tuner.operation_log import operation_log
 from tuner.ui_hardware import AxisMotionPage
@@ -592,7 +591,7 @@ class SafeAxisMotionPage(AxisMotionPage):
         """
         try:
             controller = self.session.require_controller()
-            index = axis_index(axis)
+            index = controller.physical_axis(axis)
             fs_limit = float(controller.link.get_fs_limit(index))
             rs_limit = float(controller.link.get_rs_limit(index))
         except Exception:  # noqa: BLE001 - the note must never mask the refusal
@@ -616,7 +615,7 @@ class SafeAxisMotionPage(AxisMotionPage):
 
     def _jog(self, axis: str, delta: float) -> None:
         controller = self.session.require_controller()
-        current = float(controller.link.get_dpos(axis_index(axis)))
+        current = float(controller.link.get_dpos(controller.physical_axis(axis)))
         self._check_travel(axis, current + float(delta))
         super()._jog(axis, delta)
 
@@ -648,7 +647,7 @@ class SafeAxisMotionPage(AxisMotionPage):
                 raise MotionError(
                     f'先把探针轴回零，再回零 X：未回零 {", ".join(unreferenced)}')
 
-        index = controller.axes.index(axis)
+        index = controller.physical_axis(axis)
         params = controller.axis_params.get(axis)
         mode = params.datum_mode if params else 4
         low, high = self._travel_box(axis)
@@ -944,6 +943,11 @@ class SafeAxisMotionPage(AxisMotionPage):
         params = self.session.settings.axes.get(axis)
         if params is not None:
             return int(params.datum_in)
+        controller = self.session.controller
+        if controller is not None:
+            fallback = getattr(controller, 'datum_input', None)
+            if callable(fallback):
+                return int(fallback(axis))
         return {'X': 16, 'Z1': 17, 'Z2': 18, 'Z3': 19}.get(axis, -1)
 
     def _input_state(self, channel: int) -> str:

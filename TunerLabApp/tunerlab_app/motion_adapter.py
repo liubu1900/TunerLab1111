@@ -109,7 +109,7 @@ class TunerMotionController(ZmotionMotionController):
         if params is None:
             return True
         try:
-            live = float(self.link.get_units(self.axes.index(axis)))
+            live = float(self.link.get_units(self.physical_axis(axis)))
         except Exception:  # noqa: BLE001 - an unreadable axis is not a verdict
             return False
         return abs(live - float(params.units)) <= 1e-6 * max(1.0, abs(live))
@@ -166,6 +166,9 @@ class TunerMotionController(ZmotionMotionController):
         params = self.axis_params.get(axis)
         if params is not None and getattr(params, 'datum_in', -1) >= 0:
             return int(params.datum_in)
+        fallback = self.datum_input(axis)
+        if fallback >= 0:
+            return int(fallback)
         return DEFAULT_DATUM_INPUT.get(axis, -1)
 
     def read_datum_inputs(self, max_age: float | None = None) -> dict[str, int | None]:
@@ -235,7 +238,7 @@ class TunerMotionController(ZmotionMotionController):
         if not (distance == distance) or abs(distance) <= 0:  # NaN-safe
             raise ValueError('probe distance must be a finite, non-zero number')
         self._require_ready(axes=[axis])
-        index = self.axes.index(axis)
+        index = self.physical_axis(axis)
         start_dpos = self.link.get_dpos(index)
         start_feedback = self.link.get_mpos(index)
         if not (start_dpos == start_dpos and start_feedback == start_feedback):
@@ -333,16 +336,20 @@ class TunerMotionController(ZmotionMotionController):
                 raise MotionError(
                     f'先把探针轴回零，再回零 X：未回零 {", ".join(unreferenced)}')
 
-        index = self.axes.index(axis)
+        # ``index`` is the controller axis number (3/4/5 for the right tuner);
+        # the OP homing pulse uses a separate output number, which may or may
+        # not follow the axis numbering on a given machine.
+        index = self.physical_axis(axis)
+        output = self.output(axis)
         pulse_seconds = self.HOME_PULSE_SECONDS if pulse is None else float(pulse)
         timeout = self.HOME_SETTLE_TIMEOUT if settle_timeout is None else float(settle_timeout)
         start_mpos = self.link.get_mpos(index)
         started = time.monotonic()
 
         # The operator's two clicks: output on, then off.
-        self._set_op(index, True)
+        self._set_op(output, True)
         time.sleep(pulse_seconds)
-        self._set_op(index, False)
+        self._set_op(output, False)
 
         # Wait until the encoder stops moving (the drive finished its cycle).
         last = None
@@ -386,7 +393,8 @@ class TunerMotionController(ZmotionMotionController):
         self.homed = len(self.homed_axes) == len(self.axes)
         return {
             'axis': axis,
-            'output': index,
+            'physical_axis': index,
+            'output': output,
             'travel_mm': travel_mm,
             'elapsed_s': elapsed,
             'dpos': float(self.link.get_dpos(index)),

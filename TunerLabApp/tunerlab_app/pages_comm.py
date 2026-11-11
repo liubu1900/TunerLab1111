@@ -102,6 +102,13 @@ class CommunicationPage(QWidget):
             self.model_combo.findData(self.session.settings.axis_count))
         self.model_combo.currentIndexChanged.connect(self.on_model_changed)
 
+        # One controller drives two tuners; the combo picks which one the
+        # console commands.  The physical axis block of each is fixed by the
+        # wiring and shown next to the entry.
+        self.unit_combo = QComboBox()
+        self.unit_combo.currentIndexChanged.connect(self.on_unit_changed)
+        self._populate_units()
+
         # A painted switch, not a QCheckBox with a style-sheet image: the image
         # was drawn into the 34x19 indicator box without its device pixel ratio
         # and appeared as a clipped arc, so half the control seemed dead.
@@ -127,11 +134,20 @@ class CommunicationPage(QWidget):
         form.addWidget(self.ip_edit, 0, 1)
         form.addWidget(label('控制器模式'), 1, 0)
         form.addWidget(self.mode_combo, 1, 1)
-        form.addWidget(label('tuner 型号'), 2, 0)
-        form.addWidget(self.model_combo, 2, 1)
-        form.addWidget(label('启动'), 3, 0)
-        form.addWidget(auto_row, 3, 1)
+        form.addWidget(label('当前 Tuner'), 2, 0)
+        form.addWidget(self.unit_combo, 2, 1)
+        form.addWidget(label('tuner 型号'), 3, 0)
+        form.addWidget(self.model_combo, 3, 1)
+        form.addWidget(label('启动'), 4, 0)
+        form.addWidget(auto_row, 4, 1)
         card.body.addLayout(form)
+
+        self.unit_hint = QLabel('')
+        self.unit_hint.setObjectName('PageHint')
+        self.unit_hint.setWordWrap(True)
+        self.unit_hint.setFont(px_font(11.5, 'light'))
+        card.body.addWidget(self.unit_hint)
+        self._sync_unit_hint()
 
         self.auto_hint = QLabel('')
         self.auto_hint.setObjectName('PageHint')
@@ -220,6 +236,47 @@ class CommunicationPage(QWidget):
         return card
 
     # ---------------- behaviour ----------------
+    def _populate_units(self) -> None:
+        """Fill the tuner selector from the session's unit list."""
+        combo = self.unit_combo
+        combo.blockSignals(True)
+        combo.clear()
+        for unit in self.session.available_units():
+            axes = '/'.join(str(a) for a in unit['physical_axes'])
+            combo.addItem(f"{unit['label']} · 轴 {axes}", unit['key'])
+        index = combo.findData(self.session.settings.active_unit)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
+
+    def _sync_unit_hint(self) -> None:
+        """Explain which physical axes the selected tuner commands."""
+        unit = self.session.active_unit
+        mapping = '，'.join(f'{name} → 轴 {number}'
+                            for name, number in unit.axis_map().items())
+        self.unit_hint.setText(
+            f'当前操作对象：{unit.label} · 物理轴 '
+            f'{", ".join(str(a) for a in unit.physical_axes)}（{mapping}）。'
+            '切换后所有运动、回零、标定操作只作用于所选 Tuner。')
+        self.unit_hint.setStyleSheet('color:#8496ad;')
+
+    def on_unit_changed(self) -> None:
+        """Switch the tuner the console commands."""
+        key = self.unit_combo.currentData()
+        if not key or key == self.session.settings.active_unit:
+            return
+        try:
+            self.session.set_active_unit(str(key))
+        except Exception as exc:  # noqa: BLE001 - must be visible, not silent
+            operation_log.exception('系统', '切换 Tuner', exc, unit=key)
+            self._flash(f'切换 Tuner 失败: {exc}')
+            self._populate_units()
+            return
+        unit = self.session.active_unit
+        self._sync_unit_hint()
+        self._flash(
+            f'已切换到 {unit.label} · 物理轴 '
+            f'{", ".join(str(a) for a in unit.physical_axes)}')
+
     def _sync_auto_hint(self) -> None:
         on = self.session.settings.connection.connect_on_start
         if on:
@@ -391,6 +448,8 @@ class CommunicationPage(QWidget):
             self.session.set_axis_count(count)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, 'tuner 型号', str(exc))
+            return
+        self._sync_unit_hint()
 
 
 #: The shell refers to this name; both names point at the same page.

@@ -259,7 +259,15 @@ def test_the_status_snapshot_has_one_entry_per_axis():
 
 
 # ------------------------------------------------------------- desktop UI
-def test_the_desktop_pages_follow_the_tuner_model(qapp):
+@pytest.fixture
+def no_modal_dialogs(monkeypatch):
+    """Keep modal message boxes from blocking the offscreen test run."""
+    from PySide6.QtWidgets import QMessageBox
+    for name in ('warning', 'information', 'critical', 'question'):
+        monkeypatch.setattr(QMessageBox, name, staticmethod(lambda *a, **k: None))
+
+
+def test_the_desktop_pages_follow_the_tuner_model(qapp, no_modal_dialogs):
     """Switching the model rebuilds the axis rows of every page."""
     from tuner.ui_hardware import (
         AxisMotionPage, AxisParameterPage, CommunicationPage, HardwareSession,

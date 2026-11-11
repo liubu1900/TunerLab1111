@@ -102,13 +102,15 @@ def build_tuner_config(axis_params: dict[str, AxisParams],
 
 
 class ZmotionMotionController:
-    """Motion backend driving the axes of one tuner model through a Zmotion controller.
+    """Motion backend driving one tuner of a (possibly two-tuner) controller.
 
-    The controller exposes ``X``, ``Z1``, ``Z2`` and ``Z3`` in that order, matching
-    :attr:`tuner.axis_params.CONTROLLER_AXES`. Which of them belong to the tuner is
-    decided by ``axis_count``: a 3-axis tuner uses the first three, a 4-axis tuner all
-    four. The controller axis *indices* never change, so a stored calibration stays
-    valid when the model is switched.
+    Logical axes are ``X``, ``Z1``, ``Z2`` (and ``Z3`` for a four-axis model),
+    while the controller addresses them by *physical* axis number.  ``axis_base``
+    is the physical number of logical X: 0 for the left tuner, 3 for the right
+    one.  Every driver call goes through :meth:`physical_axis`; the logical
+    0-based index is used only to address position vectors.  A stored
+    calibration stays valid when the tuner is switched, because it is recorded
+    against logical axes.
     """
 
     simulated = False
@@ -116,7 +118,9 @@ class ZmotionMotionController:
     def __init__(self, config: TunerConfig, link: ZmotionController,
                  axis_params: dict[str, AxisParams] | None = None,
                  position_tolerance: float = DEFAULT_POSITION_TOLERANCE,
-                 axis_count: int | None = None):
+                 axis_count: int | None = None,
+                 *, axis_base: int = 0, op_base: int = 0,
+                 datum_in_base: int = -1):
         self.config = config
         self.link = link
         self.axis_params = axis_params or {}
@@ -137,6 +141,60 @@ class ZmotionMotionController:
             axis_count = len(config.axes)
         #: The axes that belong to this tuner model.
         self.axes = tuner_axes(axis_count)
+        #: First **physical** controller axis of this tuner.  The left tuner
+        #: starts at 0, the right one at 3.  Every driver call below uses
+        #: :meth:`physical_axis`; the logical 0-based index is only used to
+        #: address the position vectors.
+        if not isinstance(axis_base, int) or isinstance(axis_base, bool) or axis_base < 0:
+            raise ValueError('axis_base must be a non-negative integer')
+        self.axis_base = int(axis_base)
+        #: First digital output used by the desktop OP-pulse homing.
+        if not isinstance(op_base, int) or isinstance(op_base, bool) or op_base < 0:
+            raise ValueError('op_base must be a non-negative integer')
+        self.op_base = int(op_base)
+        #: First origin-input channel, used when no per-axis parameter exists.
+        self.datum_in_base = int(datum_in_base)
+
+    # -- logical <-> physical axis mapping -------------------------------
+    @property
+    def physical_axes(self) -> tuple[int, ...]:
+        """Controller axis numbers of this tuner, in logical order."""
+        return tuple(self.axis_base + index for index in range(len(self.axes)))
+
+    def physical_axis(self, axis: str | int) -> int:
+        """Controller axis number of a logical axis name (or logical index).
+
+        A two-tuner controller wires the right tuner to axes 3/4/5 while the
+        software keeps calling it ``X``/``Z1``/``Z2``.  Passing a bare index
+        to the driver would move the *left* tuner instead.
+        """
+        if isinstance(axis, str):
+            try:
+                logical = self.axes.index(axis)
+            except ValueError as exc:
+                raise ValueError(
+                    f'unknown axis {axis!r}; expected one of {self.axes}') from exc
+        else:
+            logical = int(axis)
+            if not 0 <= logical < len(self.axes):
+                raise ValueError(f'logical axis index {logical} out of range')
+        return self.axis_base + logical
+
+    def output(self, axis: str | int) -> int:
+        """Digital output number used for the OP homing pulse of ``axis``."""
+        logical = self.axes.index(axis) if isinstance(axis, str) else int(axis)
+        return self.op_base + logical
+
+    def datum_input(self, axis: str | int) -> int:
+        """Fallback origin-input channel of ``axis`` for this tuner."""
+        if self.datum_in_base < 0:
+            return -1
+        logical = self.axes.index(axis) if isinstance(axis, str) else int(axis)
+        return self.datum_in_base + logical
+
+    def axis_map(self) -> dict[str, int]:
+        """``{logical name: controller axis number}`` for the status bar."""
+        return {name: self.physical_axis(name) for name in self.axes}
 
     # -- lifecycle -------------------------------------------------------
     def initialize(self):
@@ -156,7 +214,7 @@ class ZmotionMotionController:
     def refresh_home_state(self) -> set[str]:
         """Adopt the controller's per-axis homing state."""
         self.homed_axes = {name for index, name in enumerate(self.axes)
-                           if self.link.home_status(index) == 1}
+                           if self.link.home_status(self.physical_axis(index)) == 1}
         self.homed = len(self.homed_axes) == len(self.axes)
         return set(self.homed_axes)
 
@@ -182,7 +240,7 @@ class ZmotionMotionController:
         """``True`` when the controller reports a successful homing on every axis."""
         if not self.link.connected:
             return False
-        return all(self.link.home_status(index) == 1 for index in range(len(self.axes)))
+        return all(self.link.home_status(axis) == 1 for axis in self.physical_axes)
 
     def close(self) -> None:
         """Release the controller link."""
@@ -227,7 +285,7 @@ class ZmotionMotionController:
             params = axis_params.get(name)
             if params is None:
                 continue
-            index = self.axes.index(name)
+            index = self.physical_axis(name)
             self.link.set_atype(index, params.atype)
             self.link.set_units(index, params.units)
             self.link.set_speed(index, params.speed)
@@ -247,7 +305,8 @@ class ZmotionMotionController:
         if not self.link.connected:
             raise MotionError('controller is not connected')
         result: dict[str, dict[str, float]] = {}
-        for index, name in enumerate(self.axes):
+        for name in self.axes:
+            index = self.physical_axis(name)
             result[name] = {
                 'feedback_scale': float(
                     self.axis_params[name].feedback_scale if name in self.axis_params else 1.0),
@@ -279,17 +338,17 @@ class ZmotionMotionController:
             raise MotionError('emergency stop is latched; reset it before homing')
         if self.faulted:
             raise MotionError('a motion fault is latched; reset it before homing')
-        for index, name in enumerate(self.axes):
+        for name in self.axes:
             params = self.axis_params.get(name)
             mode = params.datum_mode if params else 1
-            self.link.home_axis(index, mode)
-        axes = list(range(len(self.axes)))
+            self.link.home_axis(self.physical_axis(name), mode)
+        axes = list(self.physical_axes)
         if not self.link.wait_idle(axes, timeout):
             self.homed_axes.clear()
             self.homed = False
             raise MotionError('homing did not finish within the timeout')
-        failed = [name for index, name in enumerate(self.axes)
-                  if self.link.home_status(index) != 1]
+        failed = [name for name in self.axes
+                  if self.link.home_status(self.physical_axis(name)) != 1]
         if failed:
             self.homed_axes.clear()
             self.homed = False
@@ -320,7 +379,7 @@ class ZmotionMotionController:
                 raise MotionError(
                     f'home every probe axis before X: not homed: '
                     f'{", ".join(unreferenced)}')
-        index = self.axes.index(axis)
+        index = self.physical_axis(axis)
         params = self.axis_params.get(axis)
         mode = params.datum_mode if params else 1
         self.link.home_axis(index, mode)
@@ -367,14 +426,14 @@ class ZmotionMotionController:
         """Current commanded position of all axes in user units."""
         if not self.link.connected:
             raise MotionError('controller is not connected')
-        return np.array([self.link.get_dpos(index) for index in range(len(self.axes))],
+        return np.array([self.link.get_dpos(axis) for axis in self.physical_axes],
                         dtype=float)
 
     def read_feedback_position(self) -> np.ndarray:
         """Current encoder feedback position of all axes in user units."""
         if not self.link.connected:
             raise MotionError('controller is not connected')
-        return np.array([self.link.get_mpos(index) for index in range(len(self.axes))],
+        return np.array([self.link.get_mpos(axis) for axis in self.physical_axes],
                         dtype=float)
 
     def move_to(self, position, timeout=None):
@@ -405,12 +464,14 @@ class ZmotionMotionController:
             if not (probes_at_safe and target_at_safe):
                 raise MotionError(
                     'shared X travel requires all probes retracted at both endpoints')
-        axes = list(moving)
+        # ``moving`` holds *logical* indices for the position vectors; the
+        # controller is addressed with the corresponding physical axis numbers.
+        physical = [self.physical_axis(index) for index in moving]
         start_feedback = self.read_feedback_position()
-        for index in moving:
-            self.link.move_absolute(index, float(target[index]))
+        for index, physical_index in zip(moving, physical):
+            self.link.move_absolute(physical_index, float(target[index]))
         budget = self.config.motion_timeout if timeout is None else float(timeout)
-        if not self.link.wait_idle(axes, budget):
+        if not self.link.wait_idle(physical, budget):
             self.stop_all()
             raise self._latch_fault_timeout(budget)
         actual = self.read_position()
@@ -472,7 +533,7 @@ class ZmotionMotionController:
         if axis not in self.axes:
             raise ValueError(f'unknown axis: {axis}')
         self._require_ready(axes=[axis])
-        index = self.axes.index(axis)
+        index = self.physical_axis(axis)
         target = float(position)
         params = self.axis_params.get(axis)
         limits = (params.rs_limit, params.fs_limit) if params else self.config.z_limits
@@ -541,7 +602,7 @@ class ZmotionMotionController:
         if not math.isfinite(distance) or abs(distance) <= 0:
             raise ValueError('probe distance must be a finite, non-zero number')
         self._require_ready(axes=[axis])
-        index = self.axes.index(axis)
+        index = self.physical_axis(axis)
         start_dpos = self.link.get_dpos(index)
         start_feedback = self.link.get_mpos(index)
         if not (math.isfinite(start_dpos) and math.isfinite(start_feedback)):
@@ -596,7 +657,7 @@ class ZmotionMotionController:
             raise ValueError('UNITS must be positive')
         if not math.isfinite(value):
             raise ValueError('UNITS must be finite')
-        self.link.set_units(self.axes.index(axis), value)
+        self.link.set_units(self.physical_axis(axis), value)
         # The pulse equivalent was just changed, so the previously measured scale
         # no longer applies; it must be re-probed before this axis is trusted.
         self.scale_state[axis] = 'measured'
@@ -606,11 +667,11 @@ class ZmotionMotionController:
         """Cancel motion on one axis."""
         if axis not in self.axes:
             raise ValueError(f'unknown axis: {axis}')
-        self.link.stop_axis(self.axes.index(axis))
+        self.link.stop_axis(self.physical_axis(axis))
 
     def stop_all(self) -> None:
-        """Cancel motion on every axis."""
-        self.link.stop_axes(range(len(self.axes)))
+        """Cancel motion on every axis of this tuner (never the other tuner)."""
+        self.link.stop_axes(self.physical_axes)
 
     def retract(self):
         """Move the three probe axes back to the safe Z position."""
@@ -657,16 +718,18 @@ class ZmotionMotionController:
         """
         if not self.link.connected:
             raise MotionError('controller is not connected')
-        info = self.link.read_all_axis_info(len(self.axes))
+        info = self._axis_info()
         snapshot = []
         for index, name in enumerate(self.axes):
-            status = int(info['status'][index])
-            stop_reason = int(self.link.axis_stop_reason(index))
-            dpos = float(info['dpos'][index])
-            mpos = float(info['mpos'][index])
+            physical = self.physical_axis(index)
+            status = int(info['status'][physical])
+            stop_reason = int(self.link.axis_stop_reason(physical))
+            dpos = float(info['dpos'][physical])
+            mpos = float(info['mpos'][physical])
             entry: dict[str, float] = {
                 'axis': name,
-                'idle': int(info['idle'][index]),
+                'physical_axis': physical,
+                'idle': int(info['idle'][physical]),
                 'dpos': dpos,
                 'mpos': mpos,
                 'following_error': dpos - mpos,
@@ -676,14 +739,38 @@ class ZmotionMotionController:
                 'status_fault': has_fault(status),
                 'stop_reason': stop_reason,
                 'stop_reason_text': describe_stop_reason(stop_reason),
-                'home_status': float(self.link.home_status(index)),
-                'homed': self.link.home_status(index) == 1,
+                'home_status': float(self.link.home_status(physical)),
+                'homed': self.link.home_status(physical) == 1,
             }
             if detailed:
-                entry['enable'] = int(self.link.axis_enable(index))
-                entry['speed'] = float(self.link.measured_speed(index))
+                entry['enable'] = int(self.link.axis_enable(physical))
+                entry['speed'] = float(self.link.measured_speed(physical))
             snapshot.append(entry)
         return snapshot
+
+    def _axis_info(self) -> dict:
+        """Bulk-read the controller's first N axes and slice out this tuner.
+
+        ``ZAux_Direct_GetAllAxisInfo`` has no start index, so the right tuner
+        reads axes 0..5 and keeps 3..5.  Controllers that refuse a block this
+        large fall back to per-axis reads instead of losing all diagnostics.
+        """
+        total = self.axis_base + len(self.axes)
+        try:
+            return self.link.read_all_axis_info(total)
+        except Exception:  # noqa: BLE001 - diagnostics must survive a short read
+            arrays = {key: np.zeros(total, dtype=float)
+                      for key in ('idle', 'dpos', 'mpos', 'status')}
+            for name in self.axes:
+                physical = self.physical_axis(name)
+                try:
+                    arrays['idle'][physical] = float(self.link.if_idle(physical))
+                    arrays['dpos'][physical] = float(self.link.get_dpos(physical))
+                    arrays['mpos'][physical] = float(self.link.get_mpos(physical))
+                    arrays['status'][physical] = float(self.link.axis_status(physical))
+                except Exception:  # noqa: BLE001 - one unreadable axis is not fatal
+                    continue
+            return arrays
 
     def read_controller_errors(self) -> dict[str, object]:
         """Read the controller's own error number and describe it.

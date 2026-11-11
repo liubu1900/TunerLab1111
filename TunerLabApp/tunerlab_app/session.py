@@ -79,6 +79,17 @@ class TunerSession(HardwareSession):
         self._upgrade_controller()
         self._apply_timeout()
 
+    def set_active_unit(self, key: str) -> None:
+        """Select the tuner the console commands.
+
+        The base implementation rebuilds the stock backend, which would lose
+        the millimetre handling of this machine, so the adapter is put back in
+        place afterwards.
+        """
+        super().set_active_unit(key)
+        self._upgrade_controller()
+        self._apply_timeout()
+
     def apply_scale_correction(self, axis: str, units: float) -> dict:
         """Write UNITS and keep ``feedback_scale`` at the encoder ratio.
 
@@ -132,7 +143,10 @@ class TunerSession(HardwareSession):
             return
         upgraded = TunerMotionController(
             controller.config, self.link, self.settings.axes,
-            axis_count=self.settings.axis_count)
+            axis_count=self.settings.axis_count,
+            axis_base=getattr(controller, 'axis_base', 0),
+            op_base=getattr(controller, 'op_base', 0),
+            datum_in_base=getattr(controller, 'datum_in_base', -1))
         upgraded.initialize()
         self.controller = upgraded
 

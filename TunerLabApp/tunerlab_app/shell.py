@@ -440,16 +440,20 @@ class MainWindow(QMainWindow):
         connected = bool(self.session.connected)
         address = (self.session.settings.connection.ip or '').strip()
         mode = '虚拟' if self.session.settings.mode == 'virtual' else '真实'
+        unit = self.session.settings.unit
+        axes = '/'.join(str(a) for a in unit.physical_axes)
         if connected:
-            self.ctrl_badge.setText(f'● 控制器 {address or mode}')
+            self.ctrl_badge.setText(f'● 控制器 {address or mode} · {unit.label}')
             self.ctrl_badge.setStyleSheet(PILL_STYLES['ok'])
             self.ctrl_badge.setToolTip(
-                f'控制器已连接\n地址：{address or "（虚拟）"}\n模式：{mode}')
+                f'控制器已连接\n地址：{address or "（虚拟）"}\n模式：{mode}\n'
+                f'当前 Tuner：{unit.label}（物理轴 {axes}）')
         else:
             self.ctrl_badge.setText('● 控制器 未连接')
             self.ctrl_badge.setStyleSheet(PILL_STYLES['idle'])
             self.ctrl_badge.setToolTip(
-                f'控制器未连接\n上次地址：{address or "未配置"}\n模式：{mode}')
+                f'控制器未连接\n上次地址：{address or "未配置"}\n模式：{mode}\n'
+                f'当前 Tuner：{unit.label}（物理轴 {axes}）')
 
     def _on_vna_state(self, connected: bool, host: str, idn: str) -> None:
         """Refresh the VNA badge from the instrument page's poll."""
@@ -543,8 +547,11 @@ class MainWindow(QMainWindow):
     def _refresh_model_label(self) -> None:
         settings = self.session.settings
         mode = '虚拟' if settings.mode == 'virtual' else '真实'
+        unit = settings.unit
+        axes = ', '.join(str(a) for a in unit.physical_axes)
         self.model_label.setText(
-            f'{settings.axis_count} 轴 ({", ".join(settings.active_axes)}) · {mode}模式')
+            f'{unit.label} · {settings.axis_count} 轴 '
+            f'({", ".join(settings.active_axes)}) · 物理轴 {axes} · {mode}模式')
 
     def _update_cal_badge(self) -> None:
         """F-23: show the current calibration library and motion state in the bar."""

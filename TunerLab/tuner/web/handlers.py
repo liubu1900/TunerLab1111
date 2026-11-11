@@ -231,6 +231,8 @@ def hw_settings(state, body):
         'axes': list(settings.active_axes),
         'models': {str(count): list(names)
                    for count, names in TUNER_MODELS.items()},
+        'active_unit': settings.active_unit,
+        'units': state.hw.available_units(),
     }
 
 
@@ -272,6 +274,30 @@ def hw_set_model(state, body):
         operation_log.info('系统', '切换 tuner 型号',
                            f'{count} 轴: {", ".join(state.hw.axes)}',
                            axis_count=count)
+    return hw_settings(state, body)
+
+
+def hw_units(state, body):
+    """List the configured tuners and their physical axis blocks."""
+    return {'units': state.hw.available_units(),
+            'active_unit': state.hw.settings.active_unit}
+
+
+def hw_set_unit(state, body):
+    """Select the tuner the console commands.
+
+    One controller drives two tuners, so switching does not reopen the link --
+    only the motion backend is rebuilt with the new tuner's axis block.
+    """
+    key = str(body['unit'])
+    with state.hw_lock:
+        state.hw.set_active_unit(key)
+        unit = state.hw.active_unit
+        operation_log.info(
+            '系统', '切换 Tuner',
+            f'{unit.label} · 物理轴 '
+            f'{", ".join(str(a) for a in unit.physical_axes)}',
+            unit=unit.key)
     return hw_settings(state, body)
 
 
@@ -2538,6 +2564,8 @@ ROUTES = {
     'GET /api/hardware/settings': hw_settings,
     'POST /api/hardware/settings/save': hw_settings_save,
     'POST /api/hardware/model': hw_set_model,
+    'GET /api/hardware/units': hw_units,
+    'POST /api/hardware/unit': hw_set_unit,
     'POST /api/hardware/mode': hw_set_mode,
     'GET /api/hardware/params': hw_params,
     'POST /api/hardware/params/read': hw_params_read,

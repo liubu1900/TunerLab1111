@@ -109,6 +109,16 @@ class StubController:
         self.axis_params = default_axis_params()
         self.stopped = False
         self.rapidstop_called = False
+        #: Logical axes of this tuner, mirroring the real backend.
+        self.axes = TUNER_AXES
+        #: First physical controller axis of this tuner.
+        self.axis_base = 0
+
+    def physical_axis(self, axis):
+        """Controller axis number of a logical axis name."""
+        if isinstance(axis, str):
+            return TUNER_AXES.index(axis) + self.axis_base
+        return int(axis) + self.axis_base
 
     def initialize(self):
         return self.read_position()
@@ -118,7 +128,7 @@ class StubController:
         return np.array([self.link.get_dpos(i) for i in range(4)], dtype=float)
 
     def move_axis_to(self, axis, position):
-        index = TUNER_AXES.index(axis)
+        index = self.physical_axis(axis)
         self.link.move_absolute(index, position)
         return position
 

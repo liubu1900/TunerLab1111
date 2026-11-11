@@ -55,6 +55,49 @@ switching back and forth does not lose a tuned axis.
 must be set to the real mechanical limits before the machine is used for production
 moves.
 
+### Two tuners on one controller
+
+The controller in the field drives **two** tuners at once.  Each tuner has the same
+logical axes, but a different block of the controller's physical axis numbers:
+
+| Tuner | X | Z1 | Z2 |
+|---|---|---|---|
+| 左 Tuner (`left`) | 0 | 1 | 2 |
+| 右 Tuner (`right`) | 3 | 4 | 5 |
+
+The software keeps calling them `X` / `Z1` / `Z2`; the mapping to the controller's
+axis numbers lives in `tuner/tuner_units.py` and is applied by
+`ZmotionMotionController.physical_axis()`.  Every driver call goes through that
+mapping, so the right tuner is reachable and the left tuner can never command the
+right tuner's axes by accident.
+
+**Why this matters.**  Before the mapping existed the software used the *logical*
+index as the controller axis number.  The right tuner was unreachable, and a
+four-axis model on the left tuner would have commanded axis 3 — the right tuner's
+X.
+
+**Selecting the tuner.**  The *Communication* page (desktop) and the *通讯设置* page
+(web console) both offer a *当前 Tuner* selector.  Switching:
+
+* does **not** reopen the controller link — one controller drives both tuners;
+* rebuilds only the motion backend, with the new tuner's axis block;
+* parks the per-axis parameters of the outgoing tuner, so each tuner keeps its own
+  `UNITS`, limits and origin input;
+* drops the homing state, because the controller reports the homing of the new axes
+  only after they were homed themselves.
+
+**Wiring offsets.**  Each tuner also carries the first digital output used by the
+desktop OP-pulse homing (`op_base`) and the first origin-input channel
+(`datum_in_base`).  Both are **defaults** — confirm them against the real wiring
+before the first homing run, because a wrong OP channel pulses the wrong drive.
+The per-axis `datum_in` values in the axis parameters take precedence over the
+base.
+
+**Settings file.**  The tuner configuration lives in the settings file (schema 4)
+under `units`, `active_unit` and `axes_by_unit`.  Files written by schema 1–3 are
+migrated on load: their `axes` become the left tuner's parameters, and the
+origin-input base is inferred from the stored `X` channel.
+
 ### Units
 
 `UNITS` is the pulse equivalent (pulses per user unit). Distances passed to

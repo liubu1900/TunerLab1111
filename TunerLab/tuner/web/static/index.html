@@ -62,6 +62,12 @@
             <label><input id="hw-auto" type="checkbox" /> 启动时自动连接</label>
           </div>
           <div class="form-row">
+            <label>当前 Tuner</label>
+            <select id="hw-unit"></select>
+          </div>
+          <p class="hint">一台控制器可同时驱动两台 Tuner。切换当前 Tuner 后，所有运动、标定、
+            回零操作都只作用于所选的那台，物理轴号保持各自的接线不变。</p>
+          <div class="form-row">
             <label>tuner 型号</label>
             <select id="hw-model">
               <option value="3">3 轴 tuner (X, Z1, Z2)</option>
@@ -84,6 +90,8 @@
           <div class="kv"><span>控制器地址</span><b id="hw-address">—</b></div>
           <div class="kv"><span>SDK 库</span><b id="hw-library" class="num">—</b></div>
           <div class="kv"><span>tuner 型号</span><b id="hw-model-info">—</b></div>
+          <div class="kv"><span>当前 Tuner</span><b id="hw-unit-info">—</b></div>
+          <div class="kv"><span>物理轴映射</span><b id="hw-axis-map" class="num">—</b></div>
           <div class="kv"><span>控制器模式</span><b id="hw-mode-info">—</b></div>
         </div>
         <div class="card">

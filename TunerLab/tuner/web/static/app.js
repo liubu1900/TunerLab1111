@@ -55,9 +55,26 @@ async function loadHwSettings() {
     $('hw-model').value = String(r.data.axis_count || 4);
     $('hw-mode').value = r.data.mode || 'real';
     $('hw-ip').disabled = ($('hw-mode').value !== 'real');
+    applyUnitList(r.data.units || [], r.data.active_unit || '');
     applyAxisSet(r.data.axes || AXES);
   }
   updateHwStatus();
+}
+
+// Rebuild the tuner selector from the server's unit list.
+function applyUnitList(units, activeKey) {
+  const sel = $('hw-unit');
+  if (!sel) return;
+  const current = sel.value || activeKey;
+  sel.innerHTML = '';
+  units.forEach((u) => {
+    const opt = document.createElement('option');
+    opt.value = u.key;
+    opt.textContent = u.label + ' · 轴 ' + (u.physical_axes || []).join('/');
+    sel.appendChild(opt);
+  });
+  if (units.some((u) => u.key === current)) sel.value = current;
+  else if (activeKey) sel.value = activeKey;
 }
 
 // Rebuild every axis-dependent control for the active tuner model.
@@ -99,6 +116,14 @@ async function updateHwStatus() {
   if (d.active_axes && d.active_axes.length) {
     $('hw-model-info').textContent =
       d.axis_count + ' 轴 (' + d.active_axes.join(', ') + ')';
+  }
+  if (d.unit_label) {
+    $('hw-unit-info').textContent = d.unit_label;
+  }
+  if (d.axis_map) {
+    const map = d.axis_map;
+    $('hw-axis-map').textContent =
+      Object.keys(map).map((k) => k + '→' + map[k]).join('  ');
   }
   const mode = d.mode || 'real';
   $('hw-mode-info').textContent = mode === 'virtual' ? '虚拟控制器' : '真实控制器';
@@ -217,6 +242,24 @@ $('hw-model').onchange = async () => {
   applyAxisSet(r.data.axes || []);
   showMsg($('hw-scale'),
     'tuner 型号已切换为 ' + count + ' 轴: ' + (r.data.axes || []).join(', '), 'ok');
+  await loadHwParams();
+  updateHwStatus();
+};
+
+// Switching the tuner picks which physical axis block the software commands.
+$('hw-unit').onchange = async () => {
+  const key = $('hw-unit').value;
+  const r = await api('POST', '/api/hardware/unit', { unit: key });
+  if (!r.ok) {
+    showMsg($('hw-scale'), '切换 Tuner 失败: ' + r.error, 'error');
+    return;
+  }
+  applyUnitList(r.data.units || [], r.data.active_unit || key);
+  applyAxisSet(r.data.axes || []);
+  const unit = (r.data.units || []).find((u) => u.key === (r.data.active_unit || key));
+  const map = unit ? Object.keys(unit.axis_map || {}).map((k) => k + '→' + unit.axis_map[k]).join('  ') : '';
+  showMsg($('hw-scale'),
+    '已切换到 ' + (unit ? unit.label : key) + '，物理轴 ' + map, 'ok');
   await loadHwParams();
   updateHwStatus();
 };

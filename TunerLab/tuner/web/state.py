@@ -122,6 +122,12 @@ class AppState:
                                if self.hw.settings else 0),
                 'mode': (self.hw.settings.mode if self.hw.settings else 'real'),
                 'active_axes': (list(self.hw.axes) if self.hw.settings else []),
+                'active_unit': (self.hw.settings.active_unit
+                                if self.hw.settings else ''),
+                'unit_label': (self.hw.active_unit.label
+                               if self.hw.settings else ''),
+                'axis_map': (self.hw.active_unit.axis_map()
+                             if self.hw.settings else {}),
                 'axes': snapshot,
             }
 
