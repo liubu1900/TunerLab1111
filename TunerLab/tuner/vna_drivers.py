@@ -435,6 +435,27 @@ DIALECT_FIELDS = ('define_cmd', 'fetch_mnemonic', 'power_cmd',
                   'ifbw_cmd', 'trigger_cmd')
 
 
+def is_duplicate_measurement(resp: str) -> bool:
+    """True for ``+104,"Duplicate measurement name"`` and its vendor variants.
+
+    This is deliberately *not* the same as ``-113 Undefined header``.  A +104
+    means the analyzer parsed the header, accepted the arguments, and found a
+    measurement with that name already present (left over from a previous
+    session or a probe run).  In other words the command dialect is correct;
+    only the chosen name collided.  Treating +104 as a failure is what made the
+    second probe of the workshop N5224A report "no usable define command"
+    even though ``:CALC1:PAR:DEF:EXT`` had succeeded with +0 on the first run.
+
+    Keysight error 104 text is "Duplicate measurement name"; some firmware
+    abbreviates it, so match on the number plus a loose keyword rather than an
+    exact string.
+    """
+    text = (resp or '').lower()
+    if '104' not in text:
+        return False
+    return any(word in text for word in ('duplicat', 'measurement', 'name'))
+
+
 # --------------------------------------------------------------------------- #
 # The driver
 # --------------------------------------------------------------------------- #
@@ -717,10 +738,18 @@ class TCPVNA:
                 continue
 
             if queue_usable:
-                verdict, _ = self._classify_error()
+                verdict, resp = self._classify_error()
                 if verdict == 'unknown':
                     queue_usable = False
-                elif verdict == 'ok':
+                elif verdict == 'ok' or (verdict == 'error'
+                                         and is_duplicate_measurement(resp)):
+                    # +104 "Duplicate measurement name" proves this header WAS
+                    # understood -- only an undefined header yields -113.  The
+                    # measurement already exists under the exact name we asked
+                    # for (left over from an earlier session or a probe run),
+                    # so reusing it is safe and makes connect() idempotent.
+                    # Without this, every reconnect on the workshop N5224A
+                    # failed with "failed to define measurement S11".
                     self._clear_error_queue()
                     self._define_cmd = header       # reuse for S21/S12/S22
                     return

@@ -143,6 +143,60 @@ def test_probe_without_error_queue_marks_unknown_not_reject():
     assert 'UNKNOWN' in P.format_report(result)
 
 
+class DuplicateNameInstrument(ScriptedInstrument):
+    """Second probe on the same box: DEF candidates answer +104, not -113.
+
+    Replays ``error1.txt`` (N5224A, GPIB0::16): TL_probe_S11 already exists
+    from the first probe, so the accepted DEF:EXT/PAR:EXT headers now report
+    "+104 Duplicate measurement name" instead of "+0".
+    """
+
+    IDN = 'Agilent Technologies,N5224A,MY51441375,A.09.90.19'
+
+    def __init__(self):
+        super().__init__(accepted=':CALC1:PAR:DEF:EXT', idn=self.IDN)
+        self.catalog.append('TL_probe_S11')  # leftover from the first probe
+
+    def write(self, cmd):
+        self.sent.append(cmd)
+        if cmd == '*CLS':
+            self.queue.clear()
+        elif self._is_define(cmd):
+            header = cmd.split(' ', 1)[0].replace('PAR1', 'PAR')
+            if header in (':CALC1:PAR:DEF:EXT', ':CALC1:PAR:EXT'):
+                # Same name already present -- HEADER WAS VALID (+104).
+                self.queue.append('+104,"Duplicate measurement name"')
+            elif header == self.accepted:
+                self.catalog.append('TL_probe_S11')
+            else:
+                self.queue.append('-113,"Undefined header"')
+
+
+def test_probe_recovers_dialect_when_name_already_exists():
+    """A second probe must still recommend DEF:EXT despite all rows +104."""
+    inst = DuplicateNameInstrument()
+    result = P.probe_transport(inst, target='GPIB0::16::INSTR',
+                               interface='gpib')
+    assert result['idn_fields']['model'] == 'N5224A'
+    # Every define candidate came back +104, yet the header is valid.
+    assert all(r['verdict'] == 'OK' for r in result['define'] if
+               r['error'].startswith('+104'))
+    assert result['accepted_define']
+    assert result['suggested_dialect']['define_cmd'] == ':CALC1:PAR:DEF:EXT'
+    # The report explains the +104 instead of claiming "no usable dialect".
+    text = P.format_report(result)
+    assert '未找到可用的测量定义写法' not in text
+    assert 'Duplicate measurement name' in text
+    assert '命令头本身有效' in text
+
+
+def test_probe_cleans_up_leftover_measurement_before_defining():
+    """The probe deletes its own TL_probe_* slot so repeats stay deterministic."""
+    inst = DuplicateNameInstrument()
+    P.probe_transport(inst)
+    assert any(c.startswith(':CALC1:PAR:DEL ') for c in inst.sent)
+
+
 def test_probe_without_error_queue_uses_catalogue_readback():
     inst = ScriptedInstrument(no_error_queue=True, no_cls=True)
     result = P.probe_transport(inst)

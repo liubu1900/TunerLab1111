@@ -37,13 +37,17 @@ __all__ = [
 
 NO_ERROR_PREFIXES = ('+0', '0,')
 
+#: Measurement name the probe creates.  Kept stable so repeated probes reuse a
+#: single, well-known slot that can be cleaned up before each run.
+PROBE_MEAS_NAME = 'TL_probe_S11'
+
 #: Measurement-definition dialects, in the same order the driver negotiates.
 #: ``legacy`` commands only make sense on older GPIB analyzers.
 DEFINE_CANDIDATES: list[tuple[str, str]] = [
-    (":CALC1:PAR:DEF 'TL_probe_S11','S11'", '当前驱动 / ENA 两参数写法'),
-    (":CALC1:PAR:SDEF 'TL_probe_S11','S11'", 'R&S ZNB/ZVA/ZND (SDEFine)'),
-    (":CALC1:PAR:DEF:EXT 'TL_probe_S11','S11'", 'Keysight PNA / PNA-X (DEFine:EXTended)'),
-    (":CALC1:PAR:EXT 'TL_probe_S11','S11'", 'Keysight PNA 简写 (PAR:EXT)'),
+    (f":CALC1:PAR:DEF '{PROBE_MEAS_NAME}','S11'", '当前驱动 / ENA 两参数写法'),
+    (f":CALC1:PAR:SDEF '{PROBE_MEAS_NAME}','S11'", 'R&S ZNB/ZVA/ZND (SDEFine)'),
+    (f":CALC1:PAR:DEF:EXT '{PROBE_MEAS_NAME}','S11'", 'Keysight PNA / PNA-X (DEFine:EXTended)'),
+    (f":CALC1:PAR:EXT '{PROBE_MEAS_NAME}','S11'", 'Keysight PNA 简写 (PAR:EXT)'),
     (":CALC1:MEAS:DEF 'S11'", '早期 PNA（无命名测量）'),
     (':CALC1:PAR1:DEF S11', '老式 ENA / HP 87xx：按迹线号设置参数'),
 ]
@@ -181,7 +185,16 @@ class _ProbeSession:
             return f'<发送异常: {exc}>', 'ERROR', ''
         if self.error_queue:
             err = self.error_of()
-            verdict = 'OK' if _is_ok(err) else 'REJECT'
+            if _is_ok(err):
+                verdict = 'OK'
+            elif V.is_duplicate_measurement(err):
+                # +104 "Duplicate measurement name" means the header and
+                # arguments were ACCEPTED -- only the name already existed.
+                # An undefined header would have answered -113 instead, so a
+                # duplicate is positive evidence the dialect is correct.
+                verdict = 'OK'
+            else:
+                verdict = 'REJECT'
         else:
             err = '<无错误队列>'
             if not definable or before is None:
@@ -280,11 +293,18 @@ def _summarise(result: dict) -> list[str]:
         lines.append('注意：仪器没有 :SYST:ERR? 错误队列，UNKNOWN 判定需用回读或手册确认。')
     accepted = [r['cmd'] for r in result.get('define', [])
                 if r.get('verdict') == 'OK']
+    duplicates = [r['cmd'] for r in result.get('define', [])
+                  if r.get('verdict') == 'OK' and '104' in str(r.get('error', ''))]
     if accepted:
         lines.append(f'可用的测量定义命令：{accepted[0]}')
     else:
         lines.append('未找到可用的测量定义写法；请把 *IDN? 与编程手册的'
                      '「Measurement / Trace 定义」章节发回以新增 profile。')
+    if duplicates:
+        lines.append('其中返回 +104「Duplicate measurement name」的命令：命令头'
+                     '本身有效（无效的命令头会报 -113），只是同名测量已存在；'
+                     '探测前已尝试自动清理同名测量，若仍重复请到前面板删除 '
+                     f'{PROBE_MEAS_NAME} 后重测。')
     dialect = result.get('suggested_dialect') or {}
     if dialect:
         lines.append('可直接应用的方言：' + '，'.join(
@@ -326,6 +346,19 @@ def probe_transport(tr, *, target: str = '', interface: str = 'tcpip',
         result['opt'] = ''
     result['idn_fields'] = _idn_fields(result['idn'])
     result['capabilities'] = session.capabilities()
+
+    # ---- 1b. drop the probe measurement left by a previous run ---------
+    # The probe always creates the SAME name (TL_probe_S11). Without this
+    # cleanup, a second probe finds that name already present: every DEF
+    # candidate then answers +104 "Duplicate measurement name" instead of
+    # +0, and the old verdict logic mis-reported "no usable dialect" even
+    # though the header was perfectly valid. Cleanup is best effort -- an
+    # analyzer that rejects :CALC1:PAR:DEL is handled by the +104 logic now.
+    try:
+        session.tr.write(f":CALC1:PAR:DEL '{PROBE_MEAS_NAME}'")
+        session.clear()
+    except Exception:  # noqa: BLE001 - cleanup must never abort a probe
+        pass
 
     # ---- 2. measurement definition ------------------------------------
     total = len(DEFINE_CANDIDATES) + len(OTHER_COMMANDS)

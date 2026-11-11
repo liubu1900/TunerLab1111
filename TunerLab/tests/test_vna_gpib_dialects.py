@@ -232,3 +232,73 @@ def test_keysight_pna_profile_matches_the_verified_probe():
     assert profile['power_cmd'] == ':SOUR1:POW:LEV'        # LEV form got +0
     assert profile['ifbw_cmd'] == ':SENS1:BAND'
     assert profile['trigger_cmd'] == ':INIT1:IMM'          # INIT:IMM timed out
+
+
+def test_duplicate_measurement_name_is_recognised():
+    """+104 means the header was understood; -113 means it was not."""
+    assert V.is_duplicate_measurement('+104,"Duplicate measurement name"')
+    assert V.is_duplicate_measurement('+104,"Measurement name already exists"')
+    assert V.is_duplicate_measurement('104,Duplicate')   # loose firmware text
+    assert not V.is_duplicate_measurement('-113,"Undefined header"')
+    assert not V.is_duplicate_measurement('-158,"String data not allowed"')
+    assert not V.is_duplicate_measurement('+0,"No error"')
+
+
+def test_reconnect_reuses_measurements_instead_of_raising():
+    """N5224A reconnect: S11 already present -> +104, must NOT fail.
+
+    error1.txt showed every DEF candidate returning +104 on the second run.
+    Before the fix, ``_define_measurement`` treated that as a rejection, ran
+    out of candidates and raised ``failed to define measurement S11``.
+    """
+    class DuplicateOnDefine:
+        IDN = 'Agilent Technologies,N5224A,MY51441375,A.09.90.19'
+
+        def __init__(self):
+            self.sent: list[str] = []
+            self.opened = False
+            self._last_write = ''
+
+        def open(self):
+            self.opened = True
+
+        def close(self):
+            self.opened = False
+
+        @property
+        def connected(self):
+            return self.opened
+
+        def read(self):
+            return ''
+
+        def write(self, cmd):
+            self.sent.append(cmd)
+            self._last_write = cmd
+
+        def query(self, cmd):
+            self.sent.append(cmd)
+            if cmd == '*IDN?':
+                return self.IDN
+            if cmd == ':SYST:ERR?':
+                if any(t in self._last_write for t in (
+                        ':PAR:DEF', ':PAR:SDEF', ':PAR:EXT')):
+                    return '+104,"Duplicate measurement name"'
+                return '+0,"No error"'
+            if cmd.endswith('*OPC?') or cmd == '*OPC?':
+                return '1'
+            if cmd.startswith(':CALC1:DATA?'):
+                return '0.1,0.02,0.2,0.03'
+            return '1'
+
+    tr = DuplicateOnDefine()
+    vna = V.TCPVNA('', transport=tr, resource='GPIB0::16::INSTR',
+                   interface=V.INTERFACE_GPIB)
+    assert vna.connect() == DuplicateOnDefine.IDN
+    assert vna.vendor_key == 'keysight_pna'
+    assert vna._define_cmd == ':CALC1:PAR:DEF:EXT'
+    # Each of the four S-parameters was defined once with the PNA header and
+    # accepted via the +104 "already exists" path -- no fallback storm.
+    assert sum(1 for c in tr.sent
+               if c.startswith(':CALC1:PAR:DEF:EXT ')) == 4
+    assert vna.last_error is None
