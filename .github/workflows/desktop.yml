@@ -107,8 +107,10 @@ jobs:
             Move-Item dist/TunerLab "dist/TunerLab-$version"
             python packaging/archive_windows.py
             if ($LASTEXITCODE -ne 0) { throw 'ZIP creation failed' }
-            python packaging/verify_release.py
-            if ($LASTEXITCODE -ne 0) { throw 'Release verification failed' }
+            $verification = python packaging/verify_release.py 2>&1
+            $verificationCode = $LASTEXITCODE
+            Write-Output $verification
+            if ($verificationCode -ne 0) { throw "Release verification failed: $verification" }
             $files = @("dist/TunerLab-$version-win64.zip")
             $checksums = $files | ForEach-Object {
               $hash = Get-FileHash $_ -Algorithm SHA256

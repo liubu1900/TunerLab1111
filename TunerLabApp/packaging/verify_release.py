@@ -33,7 +33,7 @@ def verify(folder: Path, archive: Path) -> bool:
                 print('压缩包包含重复文件条目')
                 return False
             if set(names) != set(disk) or not required.issubset(disk):
-                print('文件清单不一致，或缺少 EXE / 控制台资源')
+                print(f'文件清单不一致: ZIP缺少={sorted(set(disk)-set(names))[:20]}, ZIP多出={sorted(set(names)-set(disk))[:20]}, 必需文件缺少={sorted(required-set(disk))}')
                 return False
             mismatched = []
             for info in entries:
