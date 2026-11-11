@@ -30,6 +30,16 @@ jobs:
           python-version: '3.12'
       - name: Install pinned dependencies
         run: python -m pip install -r TunerLab/requirements-tested.txt -e './TunerLab[test]'
+      - name: Install and check Windows motion runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:SystemRoot/System32/msvcr100.dll")) {
+            choco install vcredist2010 --version=10.0.40219.325 --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'VC++ 2010 x64 runtime installation failed' }
+          }
+          python -c "from tuner.zmotion import load_library; load_library(); print('Motion SDK loads without connecting hardware')"
+          if ($LASTEXITCODE -ne 0) { throw 'Source motion SDK loading failed' }
       - name: Test backend and desktop
         shell: python
         run: |
@@ -70,10 +80,6 @@ jobs:
         working-directory: TunerLabApp
         shell: pwsh
         run: |
-          if (-not (Test-Path "$env:SystemRoot/System32/msvcr100.dll")) {
-            choco install vcredist2010 --version=10.0.40219.325 --yes --no-progress
-            if ($LASTEXITCODE -ne 0) { throw 'VC++ 2010 x64 runtime installation failed' }
-          }
           python packaging/windows_runtime.py
           if ($LASTEXITCODE -ne 0) { throw 'Bundled motion DLL verification failed' }
       - name: Build Windows installer

@@ -80,6 +80,19 @@ def test_patterns_are_listed_newest_first(tmp_path):
     assert first['path'] != second['path']
 
 
+def test_rapid_saves_and_updates_sort_correctly_with_a_coarse_windows_clock(tmp_path, monkeypatch):
+    from tuner import patterns
+    monkeypatch.setattr(patterns.time, 'time', lambda: 1700000000.0)
+    monkeypatch.setattr(patterns, '_last_created', 0.0)
+    first = save_pattern('A', 'points', {'points': [[0.1, 0.1]]}, base=tmp_path)
+    second = save_pattern('B', 'points', {'points': [[0.2, 0.2]]}, base=tmp_path)
+    assert first['created'] < second['created']
+    assert [record['name'] for record in list_patterns(tmp_path)] == ['B', 'A']
+    updated = save_pattern('A', 'points', {'points': [[0.3, 0.3]]}, base=tmp_path)
+    assert updated['created'] > second['created']
+    assert [record['name'] for record in list_patterns(tmp_path)] == ['A', 'B']
+
+
 def test_deleting_a_pattern_removes_it(tmp_path):
     record = save_pattern('临时', 'points', {'points': [[0.1, 0.1]]},
                           base=tmp_path)

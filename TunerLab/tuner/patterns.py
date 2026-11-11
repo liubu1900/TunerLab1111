@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 import time
 from pathlib import Path
 
@@ -47,6 +48,19 @@ __all__ = [
 
 #: The kinds the editor can produce.
 PATTERN_KINDS = ('points', 'circle', 'radial')
+
+_created_lock = threading.Lock()
+_last_created = 0.0
+
+
+def _creation_time() -> float:
+    # Python 3.12 on Windows can return the same wall clock value for rapid
+    # saves. Keep the existing JSON timestamp format and order tied saves by
+    # the next representable value, including concurrent web requests.
+    global _last_created
+    with _created_lock:
+        _last_created = max(time.time(), math.nextafter(_last_created, math.inf))
+        return _last_created
 
 
 def pattern_dir(base=None) -> Path:
@@ -141,7 +155,7 @@ def save_pattern(name: str, kind: str, parameters: dict, points=None,
         'points': [[value.real, value.imag] for value in points],
         'count': len(points),
         'z0': float(z0),
-        'created': time.time(),
+        'created': _creation_time(),
     }
     directory = pattern_dir(base)
     directory.mkdir(parents=True, exist_ok=True)
