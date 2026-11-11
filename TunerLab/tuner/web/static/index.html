@@ -817,6 +817,17 @@
             <tbody></tbody>
           </table>
         </div>
+        <div class="card">
+          <h2>SCPI 调试工具</h2>
+          <p class="hint">连接报 <b>-113 Undefined header</b> 或换用新仪器时，点「运行 SCPI 探测」一次性读出 *IDN?（型号/固件）、本机支持的测量定义写法和取数/功率/触发命令。探测只发查询与无害配置，会临时创建 TL_probe_* 测量，请先断开连接（GPIB 资源不能被两个会话同时打开）。桌面端「系统 → SCPI 调试工具」页功能更完整。</p>
+          <div class="btn-row wrap">
+            <button id="vna-probe-run" class="btn primary">运行 SCPI 探测</button>
+            <button id="vna-probe-disconnect" class="btn">断开并探测</button>
+            <button id="vna-probe-apply" class="btn">应用探测到的方言</button>
+            <button id="vna-probe-copy" class="btn">复制报告</button>
+          </div>
+          <pre id="vna-probe-out" style="white-space:pre-wrap;max-height:420px;overflow:auto;font-size:12px;line-height:1.5;background:#f6f8fa;padding:10px;border-radius:6px;">尚未运行探测。</pre>
+        </div>
         <p class="hint">支持两种接口：TCP/IP（SCPI，默认端口 5025，无需 VISA 运行时）；GPIB（VISA 资源名，如 GPIB0::17::INSTR，Agilent/Keysight 82357B USB-GPIB 卡需安装 Keysight IO Libraries Suite，可用「检测 VISA」读取实际资源）。两种接口共用同一套厂商 SCPI 预设：罗德(R&amp;S)、Keysight E5071C(ENA)、Keysight N5247 PNA-X、思仪(AV3672)、安立(VectorStar/ShockLine)。TCP/IP 连不上请确认：① 网段互通、② 仪器已开启 SCPI 且允许 LAN 控制、③ 防火墙放行 5025；GPIB 连不上请确认：① VISA 运行时已安装、② 82357B 在 Connection Expert 中可见、③ GPIB 主地址正确。</p>
       </section>
       <!-- 操作日志 -->

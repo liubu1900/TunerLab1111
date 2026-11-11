@@ -1389,6 +1389,55 @@ $('p2-au-run').onclick = async () => {
   box.appendChild(table);
 };
 
+/* ------------------------------------------- VNA SCPI debug probe */
+let lastVnaProbe = null;
+
+async function runVnaProbe(disconnectFirst) {
+  const out = $('vna-probe-out');
+  const runBtn = $('vna-probe-run');
+  runBtn.disabled = true;
+  out.textContent = '探测中：正在连接仪器并逐条试验 SCPI 命令，请稍候…';
+  try {
+    if (disconnectFirst) {
+      const d = await api('POST', '/api/vna/disconnect', {});
+      if (!d.ok) { out.textContent = '断开失败: ' + d.error; return; }
+    }
+    const body = vnaConfigBody();
+    body.timeout_ms = Math.min(3000, Math.max(500, parseInt($('vna-timeout').value, 10) || 3000));
+    const r = await api('POST', '/api/vna/probe', body);
+    if (!r.ok) { out.textContent = '探测失败: ' + r.error; return; }
+    lastVnaProbe = r.data;
+    out.textContent = r.data.report || JSON.stringify(r.data, null, 2);
+    showMsg($('vna-msg'), 'SCPI 探测完成，可复制报告或应用方言', 'ok');
+    await loadVnaStatus();
+  } finally {
+    runBtn.disabled = false;
+  }
+}
+$('vna-probe-run').onclick = () => runVnaProbe(false);
+$('vna-probe-disconnect').onclick = () => runVnaProbe(true);
+
+$('vna-probe-apply').onclick = async () => {
+  const dialect = lastVnaProbe && lastVnaProbe.suggested_dialect;
+  if (!dialect || !Object.keys(dialect).length) {
+    showMsg($('vna-msg'), '没有可应用的方言：请先运行探测，或检查探测结果', 'error');
+    return;
+  }
+  const r = await api('POST', '/api/vna/apply_dialect', { dialect });
+  showMsg($('vna-msg'), r.ok ? '已应用方言，下次连接生效：' + JSON.stringify(dialect)
+                             : '应用失败: ' + r.error, r.ok ? 'ok' : 'error');
+};
+
+$('vna-probe-copy').onclick = async () => {
+  const text = $('vna-probe-out').textContent || '';
+  try {
+    await navigator.clipboard.writeText(text);
+    showMsg($('vna-msg'), '报告已复制到剪贴板', 'ok');
+  } catch (e) {
+    showMsg($('vna-msg'), '复制失败，请手动选中文本: ' + e.message, 'error');
+  }
+};
+
 /* ------------------------------------------------------------- bootstrap */
 syncMotionSource();
 syncVnaInterface();

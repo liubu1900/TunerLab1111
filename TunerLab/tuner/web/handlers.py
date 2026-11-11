@@ -33,9 +33,10 @@ from ..pointplan import (
 )
 from ..vna import MockVNAController
 from ..vna_drivers import (
-    DEFAULT_GPIB_RESOURCE, available_interfaces, available_vendors, create_vna,
-    visa_resources,
+    DEFAULT_GPIB_RESOURCE, DIALECT_FIELDS, available_interfaces,
+    available_vendors, create_vna, visa_resources,
 )
+from .. import vna_probe as vna_probe_module
 from ..zmotion_motion import build_tuner_config
 from ..calibration import CalibrationManager
 from ..database import CalibrationDatabase
@@ -1718,6 +1719,61 @@ def vna_visa_resources(state, body):
     return visa_resources()
 
 
+def vna_probe(state, body, *, should_stop=None, on_step=None):
+    """Run the SCPI capability probe against a real instrument.
+
+    A probe opens its own transport: VISA GPIB resources usually cannot be
+    opened twice, and holding ``vna_lock`` for the whole run would freeze the
+    GUI status poll.  Callers must therefore disconnect first; the desktop
+    debug page offers to do that automatically.
+
+    ``should_stop`` / ``on_step`` are Python callables used only by the
+    in-process desktop page (a Web request cannot carry them).
+    """
+    with state.vna_lock:
+        controller = state.vna.get('controller')
+        busy = controller is not None and bool(
+            getattr(controller, 'connected', False))
+        cfg = dict(state.vna['config'])
+    if busy:
+        raise RuntimeError(
+            '矢网当前处于连接状态。GPIB 资源不能被两个会话同时打开，'
+            '请先在「矢网控制」页断开，或使用调试工具页的「断开并探测」。')
+    interface = str(body.get('interface') or cfg.get('interface') or 'tcpip')
+    resource = str(body.get('resource') or cfg.get('resource')
+                   or DEFAULT_GPIB_RESOURCE)
+    host = str(body.get('host') or cfg.get('host') or '192.168.2.111')
+    port = int(body.get('port') or cfg.get('port') or 5025)
+    timeout_ms = int(body.get('timeout_ms') or 3000)
+    result = vna_probe_module.probe(
+        interface=interface, host=host, port=port, resource=resource,
+        timeout=max(0.5, min(30.0, timeout_ms / 1000.0)),
+        should_stop=should_stop, on_step=on_step)
+    result['report'] = vna_probe_module.format_report(result)
+    return result
+
+
+def vna_apply_dialect(state, body):
+    """Pin the commands discovered by a probe for subsequent connections.
+
+    ``body`` may carry an explicit ``dialect`` dict or a full probe ``result``
+    (its ``suggested_dialect`` is used).  Unknown keys are dropped so a stale
+    report cannot inject arbitrary driver settings.
+    """
+    raw = body.get('dialect')
+    if raw is None and isinstance(body.get('result'), dict):
+        raw = body['result'].get('suggested_dialect')
+    clean = {k: str(v).strip() for k, v in (raw or {}).items()
+             if k in DIALECT_FIELDS and str(v or '').strip()}
+    with state.vna_lock:
+        state.vna['config']['dialect'] = clean
+        controller = state.vna.get('controller')
+        if controller is not None and hasattr(controller, 'apply_dialect'):
+            controller.apply_dialect(clean)
+    return {'dialect': clean, 'applied_to_active': bool(
+        controller is not None and getattr(controller, 'connected', False))}
+
+
 def vna_connect(state, body):
     with state.vna_lock:
         # tear down any previous session
@@ -1751,7 +1807,8 @@ def vna_connect(state, body):
         controller = create_vna(cfg['vendor_key'], cfg['host'], cfg['port'],
                                 cfg['timeout_ms'] / 1000.0,
                                 interface=cfg['interface'],
-                                resource=cfg['resource'])
+                                resource=cfg['resource'],
+                                dialect=cfg.get('dialect') or None)
         try:
             idn = controller.connect()
         except Exception as exc:  # noqa: BLE001 - surface VISA/driver errors
@@ -2508,6 +2565,8 @@ ROUTES = {
     'GET /api/vna/vendors': vna_vendors,
     'GET /api/vna/interfaces': vna_interfaces,
     'GET /api/vna/visa_resources': vna_visa_resources,
+    'POST /api/vna/probe': vna_probe,
+    'POST /api/vna/apply_dialect': vna_apply_dialect,
     'POST /api/vna/connect': vna_connect,
     'POST /api/vna/disconnect': vna_disconnect,
     'POST /api/vna/idn': vna_idn,

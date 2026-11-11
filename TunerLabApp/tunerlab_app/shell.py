@@ -46,6 +46,7 @@ from .pages_studio import (
 )
 from .pages_tune import StudioSmithPage, StudioTuningPage, StudioValidationPage
 from .pages_vna import VnaPage
+from .pages_vna_debug import VnaDebugPage
 from .session import TunerSession
 from .runtime import enable_crash_log, install_exception_hook, setup_logging
 from .theme import SHELL_QSS, PILL_STYLES, scaled_stylesheet
@@ -69,7 +70,7 @@ BASE_STYLESHEET = STYLESHEET + SHELL_QSS
 #: ``studio-pattern`` carries a chart, a generator panel and a resolution
 #: table; at 1140x720 they do not fit side by side either.
 _SCROLLED_PAGES = frozenset({'hw-motion', 'studio-setup', 'studio-smith',
-                             'studio-pattern'})
+                             'studio-pattern', 'vna-debug'})
 
 #: Navigation tree: (group title, [(key, label, page factory), ...]).
 #: Grouped per TunerLab_0.3.9 设计规格: 准备 / 数据与目标 / 验证与追溯 / 系统.
@@ -95,6 +96,7 @@ NAVIGATION = (
         ('hw-motion', '轴移动控制', lambda w: SafeAxisMotionPage(w.session)),
         ('hw-params', '轴参数设定', lambda w: SafeAxisParameterPage(w.session)),
         ('vna', '矢网控制 (VNA)', lambda w: VnaPage(w.state)),
+        ('vna-debug', 'SCPI 调试工具', lambda w: VnaDebugPage(w.state)),
         ('oplog', '操作日志', lambda w: OperationLogPage(w.session)),
         ('about', '设置与关于', lambda w: SettingsAboutPage(w.state)),
     )),

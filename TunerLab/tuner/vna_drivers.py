@@ -402,6 +402,32 @@ VENDOR_LABELS = {
     'auto': '自动识别',
 }
 
+#: Named-measurement headers tried during connection, in order.  ``-113
+#: "Undefined header"`` is what an analyzer answers when its command tree
+#: does not contain the header, so the driver probes until one is accepted.
+#: The first entry comes from the detected vendor profile; the rest are the
+#: known alternatives.  Shared with the SCPI debug tool so its report and the
+#: driver's negotiation never drift apart.
+STANDARD_DEFINE_HEADERS = (
+    ':CALC1:PAR:DEF',
+    ':CALC1:PAR:SDEF',
+    ':CALC1:PAR:DEF:EXT',
+    ':CALC1:PAR:EXT',
+)
+
+#: Older GPIB analyzers (HP 87xx / early ENA) predate *named* measurements:
+#: they address a numbered trace instead.  These are only appended for the
+#: GPIB interface, and only after all modern candidates fail -- sending them
+#: to a modern analyzer would just queue more -113 entries.
+LEGACY_GPIB_DEFINE_HEADERS = (
+    ':CALC1:PAR{tr}:DEF',   # e.g. :CALC1:PAR1:DEF S11
+    ':CALC1:MEAS:DEF',      # early PNA-style unnamed definition
+)
+
+#: Fields that a probe report may override in a live profile.
+DIALECT_FIELDS = ('define_cmd', 'fetch_mnemonic', 'power_cmd',
+                  'ifbw_cmd', 'trigger_cmd')
+
 
 # --------------------------------------------------------------------------- #
 # The driver
@@ -452,11 +478,22 @@ class TCPVNA:
         self._ifbw_cmd = ':SENS1:BAND'
         self._trigger_cmd = ':INIT1:IMM'
 
+        # Dialect negotiated with a real instrument.  ``create_vna(...,
+        # dialect=...)`` lets the SCPI debug tool pin commands discovered on
+        # hardware, so a GPIB analyzer never has to collect a -113 per connect.
+        self.dialect: dict = {}
+        # Some pre-SCPI GPIB analyzers have neither *CLS nor :SYST:ERR?.  Once
+        # a probe shows that, stop issuing them (each attempt costs a full VISA
+        # timeout) and switch to read-back verification instead.
+        self._cls_usable = True
+        self._error_queue_state: Optional[bool] = None  # None = not probed yet
+        self.dialect_warning: Optional[str] = None
+
     # -- connection ------------------------------------------------------
     def connect(self) -> str:
         with self.lock:
             self.transport.open()
-            self.transport.write('*CLS')
+            self._clear_error_queue()
             self.idn = self.transport.query('*IDN?')
             if self.vendor_key in ('', 'auto', None):
                 self.vendor_key = detect_vendor(self.idn)
@@ -465,10 +502,9 @@ class TCPVNA:
             self.set_sweep(self._sweep['start'], self._sweep['stop'], self._sweep['points'])
             self.set_power(self._power)
             self.set_ifbw(self._ifbw)
-            self.last_error = None
             errs = self.read_errors()
-            if errs:
-                self.last_error = '; '.join(errs)
+            notes = ([self.dialect_warning] if self.dialect_warning else []) + errs
+            self.last_error = '; '.join(notes) if notes else None
             return self.idn
 
     def close(self) -> None:
@@ -491,24 +527,82 @@ class TCPVNA:
         self._power_cmd = prof['power_cmd']
         self._ifbw_cmd = prof['ifbw_cmd']
         self._trigger_cmd = prof['trigger_cmd']
+        if self.dialect:
+            self.apply_dialect(self.dialect)
+
+    def apply_dialect(self, dialect: Optional[dict]) -> dict:
+        """Pin the SCPI commands discovered by the debug tool's probe.
+
+        Only keys in :data:`DIALECT_FIELDS` are honoured, so a stale probe
+        report from another instrument cannot inject arbitrary settings.
+        """
+        clean = {k: str(v).strip() for k, v in (dialect or {}).items()
+                 if k in DIALECT_FIELDS and str(v or '').strip()}
+        if not clean:
+            self.dialect = {}
+            return {}
+        self.dialect = clean
+        if 'define_cmd' in clean:
+            self._define_cmd = clean['define_cmd']
+        if 'fetch_mnemonic' in clean:
+            self._fetch_mnemonic = clean['fetch_mnemonic']
+        if 'power_cmd' in clean:
+            self._power_cmd = clean['power_cmd']
+        if 'ifbw_cmd' in clean:
+            self._ifbw_cmd = clean['ifbw_cmd']
+        if 'trigger_cmd' in clean:
+            self._trigger_cmd = clean['trigger_cmd']
+        return clean
 
     # -- error handling --------------------------------------------------
-    def _check_error(self) -> Optional[str]:
-        """Return the next error-string from the queue, or None if empty."""
+    def _clear_error_queue(self) -> None:
+        """Best-effort ``*CLS``; older GPIB boxes may not implement it."""
+        if not self._cls_usable:
+            return
+        try:
+            self.transport.write('*CLS')
+        except Exception:  # noqa: BLE001 - a slow timeout must not repeat
+            self._cls_usable = False
+
+    @staticmethod
+    def _is_no_error(resp: str) -> bool:
+        """Recognise the IEEE-488.2 'queue empty' replies across vendors."""
+        low = resp.strip().lower()
+        return (low.startswith('+0') or low.startswith('0,')
+                or low in ('0', '+0') or 'no error' in low)
+
+    def _classify_error(self) -> tuple[str, str]:
+        """Return ``('ok'|'error'|'unknown', response)`` for :SYST:ERR?.
+
+        ``unknown`` means the instrument has no usable error queue (timeout,
+        empty reply, or a pre-SCPI command set).  Treating that as "no error"
+        -- as the driver used to -- makes every rejected command look accepted
+        on old GPIB hardware, which is exactly the -113 trap.
+        """
         try:
             resp = self.transport.query(':SYST:ERR?').strip()
-        except Exception:  # noqa: BLE001 - never let a probe crash connect
-            return None
-        if resp.startswith('+0') or resp.startswith('0,'):
-            return None
-        return resp
+        except Exception as exc:  # noqa: BLE001 - VISA timeouts are expected here
+            self._error_queue_state = False
+            return 'unknown', f'<查询异常: {exc}>'
+        if not resp:
+            self._error_queue_state = False
+            return 'unknown', '<无响应>'
+        self._error_queue_state = True
+        if self._is_no_error(resp):
+            return 'ok', resp
+        return 'error', resp
+
+    def _check_error(self) -> Optional[str]:
+        """Return the next error-string from the queue, or None if empty."""
+        verdict, resp = self._classify_error()
+        return resp if verdict == 'error' else None
 
     def _send_optional(self, cmd: str) -> None:
         """Send a best-effort command and swallow any error it produces."""
         self.transport.write(cmd)
         err = self._check_error()
         if err is not None:
-            self.transport.write('*CLS')
+            self._clear_error_queue()
 
     def read_errors(self) -> list[str]:
         errs: list[str] = []
@@ -535,39 +629,114 @@ class TCPVNA:
             self._define_measurement(name, name)
         self._select('S11')
 
-    def _define_measurement(self, name: str, param: str) -> None:
-        """Create a named measurement, trying every SCPI dialect we know.
+    def _define_headers(self) -> list[str]:
+        """Vendor default first, then every known alternative.
 
-        ``CALC1:PAR:DEF 'name','param'`` is NOT universal.  R&S uses
-        ``CALC1:PAR:SDEF``; Keysight PNA / PNA-X use
-        ``CALC1:PAR:DEF:EXT`` (or the short form ``CALC1:PAR:EXT``), and older
-        ENA firmware expects a trace suffix (``PAR1:DEF``), which is a
-        different model handled by a dedicated profile.  An unsupported header
-        makes the instrument queue ``-113,"Undefined header"``.
-
-        Every attempt clears the error queue *before and after*: a real
-        analyzer queues one error per rejected command, so a leftover -113
-        from the previous candidate would otherwise poison the verdict of the
-        next (possibly valid) one.
+        The trace-numbered forms are GPIB-only: they describe pre-SCPI
+        analyzers that address traces by index rather than by name.
         """
         headers = [self._define_cmd]
-        for extra in (':CALC1:PAR:DEF', ':CALC1:PAR:SDEF',
-                      ':CALC1:PAR:DEF:EXT', ':CALC1:PAR:EXT'):
+        for extra in STANDARD_DEFINE_HEADERS:
             if extra not in headers:
                 headers.append(extra)
+        if self.interface == INTERFACE_GPIB:
+            for extra in LEGACY_GPIB_DEFINE_HEADERS:
+                if extra not in headers:
+                    headers.append(extra)
+        return headers
+
+    @staticmethod
+    def _format_define(header: str, name: str, param: str) -> str:
+        if '{tr}' in header:
+            trace = (TCPVNA.S_PARAMS.index(param) + 1
+                     if param in TCPVNA.S_PARAMS else 1)
+            return f'{header.format(tr=trace)} {param}'
+        if header == ':CALC1:MEAS:DEF':
+            return f"{header} '{param}'"
+        return f"{header} '{name}','{param}'"
+
+    def _verify_defined(self, name: str) -> Optional[bool]:
+        """Read back the measurement list when no error queue is available.
+
+        Returns True if the named measurement exists, False if read-back was
+        answered but the name is absent, and None when the instrument does not
+        answer read-back queries at all (nothing can be concluded).
+        """
+        answered = False
+        for query in (':CALC1:PAR:CAT?', ':CALC1:PAR:SEL?'):
+            try:
+                resp = self.transport.query(query).strip()
+            except Exception:  # noqa: BLE001
+                continue
+            answered = True
+            if not resp:
+                continue
+            if resp.lstrip().startswith(('-', '!')):
+                return False
+            if name.upper() in resp.upper():
+                return True
+        return False if answered else None
+
+    def _define_measurement(self, name: str, param: str) -> None:
+        """Create a measurement, negotiating the SCPI dialect on real hardware.
+
+        ``CALC1:PAR:DEF 'name','param'`` is NOT universal: R&S uses
+        ``CALC1:PAR:SDEF``, Keysight PNA / PNA-X use
+        ``CALC1:PAR:DEF:EXT`` (or ``CALC1:PAR:EXT``), and old GPIB analyzers
+        address a numbered trace (``PAR1:DEF S11``).  A header the instrument
+        does not define is answered with ``-113,"Undefined header"``.
+
+        Two safeguards matter on hardware:
+
+        * the error queue is cleared before *and* after every attempt, because
+          one rejected command can queue several -113 entries which would
+          poison the verdict of the next (possibly valid) candidate;
+        * when the instrument has no usable ``:SYST:ERR?`` (typical of older
+          GPIB gear) a timeout must NOT be read as success.  Commands are
+          then validated by reading the measurement catalogue back, and if
+          that fails too the driver stops probing instead of spraying every
+          candidate at an instrument that gives no feedback.
+        """
+        headers = self._define_headers()
         tried: list[str] = []
+        queue_usable = self._error_queue_state is not False
         for header in headers:
-            cmd = f"{header} '{name}','{param}'"
+            cmd = self._format_define(header, name, param)
             tried.append(cmd)
-            self.transport.write('*CLS')
-            self.transport.write(cmd)
-            accepted = self._check_error() is None
-            self.transport.write('*CLS')
-            if accepted:
-                # Reuse the working dialect for S21/S12/S22 in this session.
-                self._define_cmd = header
-                return
-        raise RuntimeError(f'failed to define measurement {name} (tried {tried})')
+            if queue_usable:
+                self._clear_error_queue()
+            try:
+                self.transport.write(cmd)
+            except Exception:  # noqa: BLE001 - try the next dialect
+                continue
+
+            if queue_usable:
+                verdict, _ = self._classify_error()
+                if verdict == 'unknown':
+                    queue_usable = False
+                elif verdict == 'ok':
+                    self._clear_error_queue()
+                    self._define_cmd = header       # reuse for S21/S12/S22
+                    return
+                else:
+                    self._clear_error_queue()
+                    continue
+
+            if not queue_usable:
+                check = self._verify_defined(name)
+                if check is True:
+                    self._define_cmd = header
+                    return
+                if check is None:
+                    self.dialect_warning = (
+                        '仪器未响应 :SYST:ERR? / :CALC1:PAR:CAT?，无法自动判定 '
+                        f'SCPI 方言；已按厂商预设使用 {header}。'
+                        '请在「SCPI 调试工具」中探测并应用真实命令集。')
+                    self._define_cmd = header
+                    return
+        raise RuntimeError(
+            f'failed to define measurement {name} (tried {tried})。'
+            '若仪器报 -113，请用「SCPI 调试工具」探测该型号支持的命令集。')
 
     def _select(self, name: str) -> None:
         self._send_optional(f":CALC1:PAR:SEL '{name}'")
@@ -626,6 +795,10 @@ class TCPVNA:
             'fetch_mnemonic': self._fetch_mnemonic,
             'power_cmd': self._power_cmd,
             'ifbw_cmd': self._ifbw_cmd,
+            'define_cmd': self._define_cmd,
+            'dialect': dict(self.dialect),
+            'dialect_warning': self.dialect_warning,
+            'error_queue_usable': self._error_queue_state,
         }
 
     # -- acquisition -----------------------------------------------------
@@ -717,24 +890,31 @@ def create_vna(vendor_key: str, host: str, port: int = SocketSCPI.DEFAULT_PORT,
                resource: Optional[str] = None,
                gpib_board: int = DEFAULT_GPIB_BOARD,
                gpib_address: int = DEFAULT_GPIB_ADDRESS,
-               resource_manager=None) -> TCPVNA:
+               resource_manager=None, dialect: Optional[dict] = None) -> TCPVNA:
     """Factory: build a :class:`TCPVNA` on the requested interface.
 
     ``interface='tcpip'`` keeps the original socket behaviour (and the original
     positional signature, so every existing caller stays valid).
     ``interface='gpib'`` opens ``resource`` (default ``GPIB0::17::INSTR``) via
-    PyVISA; a bare ``gpib_address`` is accepted too.
+    PyVISA; a bare ``gpib_address`` is accepted too.  ``dialect`` pins the
+    commands discovered by the SCPI debug tool for this instrument.
     """
     iface = str(interface or INTERFACE_TCPIP).strip().lower()
     if iface in (INTERFACE_GPIB, 'visa', 'gpib-visa', 'gpib_visa'):
         target = normalise_gpib_resource(
             resource if resource not in (None, '') else gpib_address, gpib_board)
         transport = VISASCPI(target, timeout, resource_manager=resource_manager)
-        return TCPVNA(host, port, timeout, vendor_key, transport=transport,
-                      resource=target, interface=INTERFACE_GPIB)
+        vna = TCPVNA(host, port, timeout, vendor_key, transport=transport,
+                     resource=target, interface=INTERFACE_GPIB)
+        if dialect:
+            vna.dialect = dict(dialect)
+        return vna
     if iface != INTERFACE_TCPIP:
         raise ValueError(f'unknown VNA interface: {interface!r}')
-    return TCPVNA(host, port, timeout, vendor_key)
+    vna = TCPVNA(host, port, timeout, vendor_key)
+    if dialect:
+        vna.dialect = dict(dialect)
+    return vna
 
 
 def available_interfaces() -> dict[str, str]:

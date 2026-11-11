@@ -133,8 +133,14 @@ def _build_vna(state, body: dict, config, motion):
         start = float(body.get('vna_start_hz', 1e9))
         stop = float(body.get('vna_stop_hz', 20e9))
         points = int(body.get('vna_points', 401))
+        # A dialect pinned by the SCPI debug tool also applies to a real-VNA
+        # library build, otherwise the wizard would still collect -113s.
+        dialect = body.get('vna_dialect')
+        if dialect is None and state is not None:
+            dialect = (getattr(state, 'vna', {}) or {}).get('config', {}).get('dialect')
         vna = create_vna(vendor, host, port, timeout,
-                         interface=interface, resource=resource)
+                         interface=interface, resource=resource,
+                         dialect=dialect or None)
         vna.connect()
         vna.set_sweep(start, stop, points)
         return vna, 'real'
