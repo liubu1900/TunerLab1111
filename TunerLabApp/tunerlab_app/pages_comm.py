@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
-from tuner.axis_params import TUNER_MODELS, tuner_axes
+from tuner.axis_params import VISIBLE_TUNER_MODELS, tuner_axes
 from tuner.operation_log import operation_log
 from tuner.ui_hardware import HardwareSession
 from tuner.zmotion import ZmotionController, probe_controller, vendor_dir
@@ -95,11 +95,29 @@ class CommunicationPage(QWidget):
         self.mode_combo.currentIndexChanged.connect(self.on_mode_changed)
 
         self.model_combo = QComboBox()
-        for count in sorted(TUNER_MODELS):
+        for count in VISIBLE_TUNER_MODELS:
             self.model_combo.addItem(
                 f'{count} 轴 ({"/".join(tuner_axes(count))})', count)
-        self.model_combo.setCurrentIndex(
-            self.model_combo.findData(self.session.settings.axis_count))
+        self.model_combo.setToolTip(
+            '当前现场仅提供 3 轴机型（X / Z1 / Z2，2 个探针）。\n'
+            '已保存的 4 轴校准库仍可读取；如需恢复 4 轴选项请联系维护人员。')
+        # Old settings files carry the four-axis default while the wired
+        # tuner has three axes.  Normalise once here so the combo is never
+        # blank and a 4-dimensional coordinate is never sent to a 3-axis box.
+        current = int(self.session.settings.axis_count)
+        if current not in VISIBLE_TUNER_MODELS:
+            try:
+                self.session.set_axis_count(VISIBLE_TUNER_MODELS[0])
+                operation_log.info(
+                    '系统', '归一 tuner 型号',
+                    f'{current} 轴配置已切换到现场机型 '
+                    f'{VISIBLE_TUNER_MODELS[0]} 轴',
+                    axis_count=VISIBLE_TUNER_MODELS[0])
+            except Exception as exc:  # noqa: BLE001 - never block the page
+                operation_log.warn('系统', '归一 tuner 型号',
+                                   f'{current} 轴切换失败: {exc}')
+        self.model_combo.setCurrentIndex(max(
+            0, self.model_combo.findData(self.session.settings.axis_count)))
         self.model_combo.currentIndexChanged.connect(self.on_model_changed)
 
         # One controller drives two tuners; the combo picks which one the
@@ -443,7 +461,10 @@ class CommunicationPage(QWidget):
         self._sync_auto_hint()
 
     def on_model_changed(self) -> None:
-        count = int(self.model_combo.currentData())
+        value = self.model_combo.currentData()
+        if value is None:
+            return
+        count = int(value)
         try:
             self.session.set_axis_count(count)
         except Exception as exc:  # noqa: BLE001

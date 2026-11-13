@@ -33,8 +33,8 @@ from ..pointplan import (
 )
 from ..vna import MockVNAController
 from ..vna_drivers import (
-    DEFAULT_GPIB_RESOURCE, DIALECT_FIELDS, available_interfaces,
-    available_vendors, create_vna, visa_resources,
+    CONFIG_FIELDS, CONFIG_VALUE_FIELDS, DEFAULT_GPIB_RESOURCE, DIALECT_FIELDS,
+    available_interfaces, available_vendors, create_vna, visa_resources,
 )
 from .. import vna_probe as vna_probe_module
 from ..zmotion_motion import build_tuner_config
@@ -1241,6 +1241,148 @@ def _load_database(state, database, *, keep_task=False):
         s['frequency_hz'] = float(data['frequencies'][len(data['frequencies']) // 2])
 
 
+def _library_tuner_config(data, motion):
+    """Derive a motion config from the library itself, without the wizard.
+
+    A finished library already contains every position that was physically
+    reached, so it is the authority on the axis count and on the travel box:
+    the union of the measured coordinate range and the limits recorded in the
+    library metadata.  Using the metadata alone would be wrong -- this 3-axis
+    library contains a small negative Z (encoder zero drift) that its declared
+    ``z_limits = [0, 5]`` would reject in ``validate_position``.
+    """
+    positions = np.asarray(data['positions'], dtype=float)
+    finite = positions[np.isfinite(positions).all(axis=1)]
+    if not len(finite):
+        finite = positions
+    meta_cfg = (data.get('metadata') or {}).get('config') or {}
+    n_axes = int(positions.shape[1])
+
+    def bounds(declared, values):
+        values = np.asarray(values, dtype=float).ravel()
+        lo, hi = float(values.min()), float(values.max())
+        # Interpolation can land a hair outside the sampled grid (the field
+        # library produced Z = -0.0066 while its samples start at 0).  A 1%
+        # / 0.05 mm margin keeps those predicted points reachable without
+        # opening the travel box beyond the declared machine limits.
+        pad = max((hi - lo) * 0.01, 0.05)
+        lo, hi = lo - pad, hi + pad
+        if isinstance(declared, (list, tuple)) and len(declared) == 2:
+            try:
+                d_lo, d_hi = float(declared[0]), float(declared[1])
+            except (TypeError, ValueError):
+                d_lo = d_hi = None
+            if (d_lo is not None and np.isfinite([d_lo, d_hi]).all()
+                    and d_lo <= d_hi):
+                lo, hi = min(lo, d_lo), max(hi, d_hi)
+        return (lo, hi)
+
+    x_limits = bounds(meta_cfg.get('x_limits'), finite[:, 0])
+    z_limits = bounds(meta_cfg.get('z_limits'), finite[:, 1:])
+    safe_z = float(meta_cfg.get('safe_z') or 0.0)
+    safe_z = min(max(safe_z, z_limits[0]), z_limits[1])
+    z0 = float(meta_cfg.get('z0') or 50.0)
+    if not np.isfinite(z0) or z0 <= 0:
+        z0 = 50.0
+    timeout = float(getattr(getattr(motion, 'config', None),
+                            'motion_timeout', 60.0) or 60.0)
+    if not np.isfinite(timeout) or timeout <= 0:
+        timeout = 60.0
+    return TunerConfig(
+        probes=n_axes - 1, x_limits=x_limits, z_limits=z_limits,
+        safe_z=safe_z, fixed_offsets=(0.0,) * (n_axes - 1), z0=z0,
+        simulated=False, independent_axes=True, motion_timeout=timeout)
+
+
+def _ensure_library_motion(state):
+    """Return ``(planner, motion)`` for a loaded library, wizard or no wizard.
+
+    A completed calibration library is self-contained: opening it must be
+    enough to search its stored positions and command the tuner.  The old code
+    required ``studio_init_hardware`` first, which is a wizard-only step that
+    also initialises a VNA -- exactly the coupling the operator does not have
+    when arriving on site with a finished ``.h5`` and a controller box.
+
+    The planner is built lazily on the first move, so the library, the
+    controller link and their order of arrival do not matter.  A planner the
+    wizard already installed is reused when its axis count matches the
+    library; otherwise the library geometry wins.  No VNA is touched.
+    """
+    s = state.studio
+    existing = s.get('planner')
+    data = s.get('data')
+    raw = data.get('positions') if isinstance(data, dict) else None
+    positions = np.asarray(raw, dtype=float) if raw is not None else None
+    if (positions is None or positions.ndim != 2 or not len(positions)
+            or positions.shape[1] < 3):
+        # A resumed wizard run / minimal fixture with no stored positions:
+        # keep whatever planner was installed instead of refusing the move.
+        if existing is not None and s.get('motion') is not None:
+            return existing, s['motion']
+        raise RuntimeError('校准库中没有机械位置数据，无法按库移动')
+    n_axes = int(positions.shape[1])
+    if n_axes not in TUNER_MODELS:
+        raise RuntimeError(
+            f'校准库为 {n_axes} 轴，当前机型只支持 '
+            f'{"/".join(str(k) for k in sorted(TUNER_MODELS))} 轴')
+
+    hw = getattr(state, 'hw', None)
+    motion = None
+    if hw is not None and getattr(hw, 'connected', False):
+        try:
+            motion = hw.require_controller()
+        except Exception as exc:  # noqa: BLE001 - surface a usable message
+            raise RuntimeError(f'控制器连接不可用：{exc}') from exc
+    if motion is None:
+        motion = s.get('motion')
+    if motion is None:
+        raise RuntimeError(
+            '请先在「通讯设置」连接 Tuner 控制箱，即可按校准库中的位置移动'
+            '（无需再运行校准向导或连接矢网）')
+
+    # The settings file can lag behind the wired machine (its top-level
+    # default is still the four-axis model), so the controller's own position
+    # vector is the only reliable statement of how many axes it commands.
+    # Refuse a dimension mismatch *before* sending anything to the machine.
+    try:
+        reported = np.asarray(motion.read_position(), dtype=float).ravel()
+    except Exception:  # noqa: BLE001 - a legacy/mock motion object may not report
+        reported = None
+    if reported is not None and reported.size and reported.size != n_axes:
+        raise RuntimeError(
+            f'校准库是 {n_axes} 轴（{" / ".join(TUNER_MODELS[n_axes])}），'
+            f'但控制器读回 {reported.size} 轴。请在「通讯设置 → tuner 型号」'
+            f'把机型改成 {n_axes} 轴，以免把错误维度的坐标下发给机器')
+
+    fingerprint = s.get('database_fingerprint')
+    stale = (s.get('planner_library_fingerprint') is not None
+             and s.get('planner_library_fingerprint') != fingerprint)
+    if existing is not None and not stale:
+        cfg = getattr(existing, 'config', None)
+        probes = getattr(cfg, 'probes', None)
+        controller = getattr(existing, 'controller', None)
+        if ((probes is None or probes == n_axes - 1)
+                and (controller is None or controller is motion)):
+            return existing, motion
+
+    config = _library_tuner_config(data, motion)
+    planner = MotionPlanner(config, motion)
+    with state.studio_lock:
+        s['config'] = config
+        s['motion'] = motion
+        s['planner'] = planner
+        s['planner_library_fingerprint'] = fingerprint
+        s['motion_source'] = 'library'
+    operation_log.info(
+        '运动', '按校准库接管运动',
+        f'库为 {n_axes} 轴（{" / ".join(TUNER_MODELS[n_axes])}）· '
+        f'X 行程 {config.x_limits[0]:.4f}–{config.x_limits[1]:.4f} · '
+        f'Z 行程 {config.z_limits[0]:.4f}–{config.z_limits[1]:.4f} · '
+        '未初始化矢网、未写库',
+        axes=list(TUNER_MODELS[n_axes]))
+    return planner, motion
+
+
 def studio_database(state, body):
     s = state.studio
     if s['data'] is None:
@@ -1441,15 +1583,13 @@ def studio_move_tuned(state, body):
     if s.get('last_tuned_fingerprint') != s.get('database_fingerprint'):
         raise RuntimeError(
             'stale tuning result: the loaded database changed; re-run the tune')
-    planner = s.get('planner')
-    if planner is None:
-        raise RuntimeError('no motion planner available; set up a calibration task first')
+    planner, motion = _ensure_library_motion(state)
     position = np.asarray(tuned['position'], dtype=float)
     planner.move_to(position)
     operation_log.info('运动', '移动到调谐结果',
                        ' | '.join(f'{v:.4f}' for v in position),
                        position=[float(v) for v in position])
-    return {'position': s['motion'].read_position().tolist(),
+    return {'position': np.asarray(motion.read_position(), dtype=float).ravel().tolist(),
             'predicted_gamma': tuned['gamma'],
             'error': float(tuned['error'])}
 
@@ -1469,11 +1609,9 @@ def studio_move_candidate(state, body):
     if row < 0 or row >= len(s['last_candidates']):
         raise RuntimeError('candidate index out of range')
     result = s['last_candidates'][row]
-    planner = s.get('planner')
-    if planner is None:
-        raise RuntimeError('no motion planner available; set up a calibration task first')
+    planner, motion = _ensure_library_motion(state)
     planner.move_to(result.position)
-    return {'position': s['motion'].read_position().tolist(),
+    return {'position': np.asarray(motion.read_position(), dtype=float).ravel().tolist(),
             'predicted_gamma': {'re': result.gamma.real, 'im': result.gamma.imag},
             'error': float(result.error)}
 
@@ -1506,25 +1644,25 @@ def studio_verify(state, body):
     return report
 
 
-def studio_move_to_gamma(state, body):
-    """One-click Smith-chart pick → search → move → measure → judge.
+def _smith_pick_move(state, body):
+    """Shared 目标 Γ → 搜索/插值选点 → 运动 part of both Smith pick actions.
 
-    The returned report carries the target and the *measured* Z, Γ, |Γ|, phase
-    and VSWR together with their deviations, so the operator never has to infer
-    them from a single |ΔΓ| number.
+    ``studio_move_to_gamma_only`` stops here; ``studio_move_to_gamma`` goes on
+    to sweep the VNA, judge the result and save it.  Keeping the search and the
+    motion in one place means both buttons always command the same position,
+    with the same tolerance, method, level policy and settle time.
+
+    No VNA is touched here: a move-only action must also work when the vector
+    network analyser is disconnected or has not been initialised yet.
     """
     s = state.studio
     if s['search_engine'] is None or s['data'] is None:
         raise RuntimeError('load a completed or partial calibration first')
-    if s['vna'] is None:
-        raise RuntimeError('the instrument is not initialised')
     if s['calibration_state'] in _BUSY_STATES:
         raise RuntimeError(
             f"calibration is {s['calibration_state']}; wait for it to finish "
             f"or cancel before moving the machine")
-    planner = s.get('planner')
-    if planner is None:
-        raise RuntimeError('no motion planner available; set up a calibration task first')
+    planner, motion = _ensure_library_motion(state)
 
     frequency = float(body.get('frequency', s['frequency_hz']))
     z0 = s['search_engine'].z0
@@ -1570,7 +1708,82 @@ def studio_move_to_gamma(state, body):
     settle = float(body.get('settle_s', 0.25))
     if settle > 0:
         time.sleep(min(settle, 5.0))
-    actual = np.asarray(s['motion'].read_position(), dtype=float)
+    actual = np.asarray(motion.read_position(), dtype=float).ravel()
+    if actual.size != commanded.size:
+        raise RuntimeError(
+            f'校准库为 {commanded.size} 轴，但控制器读回 {actual.size} 轴；'
+            '请在「轴参数设定 / 通讯设置」把机型轴数改成与库一致')
+    return {
+        'studio': s, 'frequency': frequency, 'z0': z0, 'tolerance': tolerance,
+        'target_gamma': target_gamma, 'target_z': target_z,
+        'choice': choice, 'commanded': commanded, 'actual': actual,
+    }
+
+
+def _smith_move_fields(move):
+    """Position / prediction fields shared by both Smith pick reports."""
+    choice = move['choice']
+    commanded = move['commanded']
+    actual = move['actual']
+    return {
+        'position': [float(v) for v in actual],
+        'commanded_position': [float(v) for v in commanded],
+        'position_error_max': float(np.max(np.abs(actual - commanded))),
+        'prediction_kind': choice['kind'],
+        'predicted_gamma_real': float(choice['gamma'].real),
+        'predicted_gamma_imag': float(choice['gamma'].imag),
+        'predicted_error': choice['error'],
+    }
+
+
+def studio_move_to_gamma_only(state, body):
+    """Move to the picked Γ *without* sweeping the VNA (Smith「仅移动」).
+
+    The operator gets the commanded and read-back position plus the predicted
+    Γ of the chosen calibration point.  Deliberately absent: ``vna.measure()``,
+    any tolerance judgement, ``save_validation()`` and ``validation_report`` --
+    this action is a motion, not a verification, and must not be mistaken for
+    one in the audit trail.  It also works with no VNA connected.
+    """
+    move = _smith_pick_move(state, body)
+    s = move['studio']
+    report = {
+        'kind': 'smith_pick_move_only',
+        'measured': False,
+        'validation_saved': False,
+        'frequency_hz': move['frequency'],
+        'tolerance': move['tolerance'],
+        'target_gamma_real': float(move['target_gamma'].real),
+        'target_gamma_imag': float(move['target_gamma'].imag),
+        'target_impedance_real': float(move['target_z'].real),
+        'target_impedance_imag': float(move['target_z'].imag),
+    }
+    report.update(_smith_move_fields(move))
+    with state.studio_lock:
+        s['frequency_hz'] = move['frequency']
+    operation_log.info(
+        '运动', 'Smith 点选仅移动',
+        f"目标 Z {move['target_z'].real:.3f}{move['target_z'].imag:+.3f}j Ω · "
+        f"位置 {' | '.join(f'{v:.4f}' for v in move['actual'])} · "
+        '未测矢网、未写验证报告',
+        frequency_hz=move['frequency'], position=report['position'])
+    return report
+
+
+def studio_move_to_gamma(state, body):
+    """One-click Smith-chart pick → search → move → measure → judge.
+
+    The returned report carries the target and the *measured* Z, Γ, |Γ|, phase
+    and VSWR together with their deviations, so the operator never has to infer
+    them from a single |ΔΓ| number.
+    """
+    s = state.studio
+    if s['vna'] is None:
+        raise RuntimeError('the instrument is not initialised')
+    move = _smith_pick_move(state, body)
+    frequency = move['frequency']
+    target_gamma = move['target_gamma']
+    target_z = move['target_z']
 
     m = s['vna'].measure()
     f = m.frequencies
@@ -1581,17 +1794,9 @@ def studio_move_to_gamma(state, body):
                     np.interp(frequency, f, measured.imag))
     report = _verification_report(
         frequency=frequency, target_gamma=target_gamma, measured_gamma=gamma,
-        z0=z0, tolerance=tolerance, simulated=m.simulated,
+        z0=move['z0'], tolerance=move['tolerance'], simulated=m.simulated,
         kind='smith_pick_move_verification')
-    report.update({
-        'position': [float(v) for v in actual],
-        'commanded_position': [float(v) for v in commanded],
-        'position_error_max': float(np.max(np.abs(actual - commanded))),
-        'prediction_kind': choice['kind'],
-        'predicted_gamma_real': float(choice['gamma'].real),
-        'predicted_gamma_imag': float(choice['gamma'].imag),
-        'predicted_error': choice['error'],
-    })
+    report.update(_smith_move_fields(move))
     s['database'].save_validation(report)
     with state.studio_lock:
         s['validation_report'] = report
@@ -1599,10 +1804,10 @@ def studio_move_to_gamma(state, body):
     operation_log.info(
         '校准', 'Smith 点选移动验证',
         f"目标 Z {target_z.real:.3f}{target_z.imag:+.3f}j Ω · "
-        f"位置 {' | '.join(f'{v:.4f}' for v in actual)} · "
+        f"位置 {' | '.join(f'{v:.4f}' for v in move['actual'])} · "
         f"实测 |ΔΓ| {report['vector_error']:.6f} · "
         f"{'通过' if report['within_tolerance'] else '超差'}",
-        frequency_hz=frequency, position=[float(v) for v in actual])
+        frequency_hz=frequency, position=report['position'])
     return report
 
 
@@ -1622,6 +1827,8 @@ def studio_validate(state, body):
     if not np.array_equal(s['vna'].frequencies, s['data']['frequencies']):
         raise ValueError('VNA frequency grid differs; reopen database to align')
     a, b = s['data']['positions'][indices[[0, -1]]]
+    # A loaded library can drive the axes without the calibration wizard.
+    _ensure_library_motion(state)
 
     def run_validation():
         with state.studio_lock:
@@ -1678,6 +1885,7 @@ def studio_validate_interpolation(state, body):
     frequency = float(body.get('frequency', s['frequency_hz']))
     model = s['search_engine'].response_model()
     points = plan_points(model, count, strategy, frequency=frequency)
+    _ensure_library_motion(state)
 
     def run_validation():
         with state.studio_lock:
@@ -1868,10 +2076,23 @@ def vna_connect(state, body):
             except Exception:  # noqa: BLE001
                 pass
             raise
-        # apply the sweep / power / ifbw requested by the panel
-        controller.set_sweep(cfg['start_hz'], cfg['stop_hz'], cfg['points'])
-        controller.set_power(cfg['power_dbm'])
-        controller.set_ifbw(cfg['ifbw_hz'])
+        # A connection is communication only: it must NOT push the panel's
+        # sweep / power / IF bandwidth to the analyzer.  The driver reads the
+        # instrument's current setup back instead.  Explicit opt-in keeps the
+        # legacy behaviour available to callers that really want it; the
+        # desktop panel sends its parameters only from 下发扫描参数.
+        if body.get('apply_sweep'):
+            controller.set_sweep(cfg['start_hz'], cfg['stop_hz'], cfg['points'])
+            controller.set_power(cfg['power_dbm'])
+            controller.set_ifbw(cfg['ifbw_hz'])
+        # Keep the session config in step with the instrument we just opened,
+        # so other pages (status bar, studio) do not use stale form values.
+        live = (controller.get_config()
+                if hasattr(controller, 'get_config') else None)
+        if isinstance(live, dict):
+            for key in CONFIG_VALUE_FIELDS:
+                if live.get(key) is not None:
+                    cfg[key] = live[key]
         state.vna['controller'] = controller
         state.vna['connected'] = True
         state.vna['idn'] = idn
@@ -1909,6 +2130,46 @@ def _require_vna(state):
         if controller is None or not controller.connected:
             raise RuntimeError('VNA not connected')
         return controller
+
+
+def _sync_vna_config(state, live) -> None:
+    """Copy a read-only config snapshot into the shared session config."""
+    if not isinstance(live, dict):
+        return
+    with state.vna_lock:
+        cfg = state.vna['config']
+        for key in CONFIG_VALUE_FIELDS:
+            if live.get(key) is not None:
+                cfg[key] = live[key]
+
+
+def vna_read_config(state, body):
+    """Query the analyzer's current sweep settings (read-only, no SCPI writes).
+
+    Backs the desktop 从矢网读取当前参数 button.  Older/simpler controllers
+    without ``read_config`` fall back to their cached ``get_config()``; the
+    response always says which fields could not be read from the instrument.
+    """
+    controller = _require_vna(state)
+    reader = getattr(controller, 'read_config', None)
+    if callable(reader):
+        live = reader()
+    elif hasattr(controller, 'get_config'):
+        cached = controller.get_config()
+        live = dict(cached) if isinstance(cached, dict) else {}
+        live['source'] = 'cached'
+        live['read'] = [f for f in CONFIG_FIELDS if f in live]
+        live['fallback'] = [f for f in CONFIG_FIELDS if f not in live]
+    else:
+        live = {}
+    if not isinstance(live, dict):
+        live = {}
+    live.setdefault('source', 'cached')
+    live.setdefault('fallback', [f for f in CONFIG_FIELDS if f not in live])
+    _sync_vna_config(state, live)
+    with state.vna_lock:
+        state.vna['last_error'] = getattr(controller, 'last_error', None)
+    return {'config': live}
 
 
 def vna_set_sweep(state, body):
@@ -1957,6 +2218,13 @@ def vna_trigger(state, body):
 
 def vna_fetch(state, body):
     controller = _require_vna(state)
+    # 单次扫描 uses whatever the analyzer is currently configured with.  A
+    # read-only refresh keeps the local frequency grid in step with the trace
+    # length (the operator may have changed the setup on the front panel since
+    # connecting).  Nothing is written: every command issued here ends in '?'.
+    reader = getattr(controller, 'read_config', None)
+    live = reader() if callable(reader) else None
+    _sync_vna_config(state, live)
     m = controller.measure()
     f = m.frequencies
     s = m.s
@@ -1974,6 +2242,7 @@ def vna_fetch(state, body):
         's': sp,
         'idn': m.metadata.get('idn'),
         'vendor': m.metadata.get('vendor'),
+        'instrument_config': live if isinstance(live, dict) else None,
     }
 
 
@@ -2284,8 +2553,9 @@ def studio_repeatability_auto(state, body):
         raise RuntimeError(
             f"calibration is {s['calibration_state']}; wait for it to finish "
             f"or cancel before starting a repeatability run")
-    if s['data'] is None or s['planner'] is None or s['vna'] is None:
+    if s['data'] is None or s['vna'] is None:
         raise RuntimeError('load a calibration and initialise the hardware first')
+    _ensure_library_motion(state)
     valid = np.flatnonzero(np.asarray(s['data']['valid'], bool))
     if len(valid) < 2:
         raise ValueError('two valid positions required')
@@ -2622,6 +2892,7 @@ ROUTES = {
     'POST /api/vna/connect': vna_connect,
     'POST /api/vna/disconnect': vna_disconnect,
     'POST /api/vna/idn': vna_idn,
+    'POST /api/vna/read_config': vna_read_config,
     'POST /api/vna/set_sweep': vna_set_sweep,
     'POST /api/vna/set_power': vna_set_power,
     'POST /api/vna/set_ifbw': vna_set_ifbw,
@@ -2659,6 +2930,7 @@ ROUTES = {
     'POST /api/studio/move_tuned': studio_move_tuned,
     'POST /api/studio/verify': studio_verify,
     'POST /api/studio/move_to_gamma': studio_move_to_gamma,
+    'POST /api/studio/move_only': studio_move_to_gamma_only,
     'POST /api/studio/validate': studio_validate,
     'POST /api/studio/validate_interpolation': studio_validate_interpolation,
     'GET /api/studio/interpolation_report': lambda state, body: state.studio.get(

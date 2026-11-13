@@ -102,6 +102,18 @@ NAVIGATION = (
     )),
 )
 
+#: Pages temporarily hidden from the operator's navigation (0.5.13.2).
+#: The page classes and their factories stay in :data:`NAVIGATION`, so this is
+#: a pure visibility switch: remove a key -- or empty the set -- to restore a
+#: page without touching any page code.  ``MainWindow.go`` already ignores
+#: keys without a navigation item, so in-page links to a hidden page are inert.
+HIDDEN_PAGES = frozenset({
+    'studio-pattern',      # 目标图案编辑器
+    'studio-tune',         # 阻抗调谐与验证
+    'studio-validation',   # 验证报告
+    'studio-audit',        # 报告与审计（现场称「报告与设计」）
+})
+
 
 class SharedState(AppState):
     """``AppState`` that reuses the desktop session's controller link.
@@ -122,7 +134,7 @@ class SharedState(AppState):
 
 
 class MainWindow(QMainWindow):
-    """One window, three groups, fourteen pages."""
+    """One window, four navigation groups; keys in HIDDEN_PAGES are not built."""
 
     def __init__(self, smoke_test: bool = False):
         super().__init__()
@@ -335,6 +347,10 @@ class MainWindow(QMainWindow):
 
         self._nav_meta: dict[str, tuple[str, str]] = {}
         for group, entries in NAVIGATION:
+            visible = [entry for entry in entries
+                       if entry[0] not in HIDDEN_PAGES]
+            if not visible:
+                continue
             group_item = QTreeWidgetItem([group])
             group_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             font = QFont(group_item.font(0))
@@ -344,7 +360,7 @@ class MainWindow(QMainWindow):
             group_item.setForeground(0, QColor('#97a6b6'))
             group_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             self.nav.addTopLevelItem(group_item)
-            for key, label, factory in entries:
+            for key, label, factory in visible:
                 page = factory(self)
                 self.pages[key] = page
                 view: QWidget = page

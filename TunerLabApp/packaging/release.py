@@ -13,9 +13,9 @@ the whole chain and refuses to publish something that does not work:
    they are data, not imports -- the spec ships them under ``vendor/zmotion``.
 
 3. **Runtime fix-up.**  PyInstaller does not bundle the VC++/MFC runtime
-   that ``zauxdll.dll`` needs, so the six runtime DLLs of the previous
-   release are copied into both the ``_internal`` root and
-   ``vendor/zmotion``.
+   that ``zauxdll.dll`` needs, nor the VC++ 2010 x64 runtime required by the
+   shipped ``zmotion.dll``.  Those DLLs are copied from the previous 0.5.13
+   release into both the ``_internal`` root and ``vendor/zmotion``.
 
 4. **Verification.**  The frozen EXE is started twice: once for
    ``--version`` and once for ``--smoke-test``, which walks every page.  A
@@ -56,9 +56,11 @@ APP_DIR = DIST / 'TunerLab'
 INTERNAL = APP_DIR / '_internal'
 VENDOR = INTERNAL / 'vendor' / 'zmotion'
 
-#: VC++/MFC runtime that ``zauxdll.dll`` links against.
+#: VC++/MFC runtime that ``zauxdll.dll`` links against, plus the VC++ 2010
+#: x64 runtime required by ``zmotion.dll`` (verified in 0.5.14).
 RUNTIME_DLLS = ('mfc140u.dll', 'mfcm140.dll', 'mfcm140u.dll',
-                'msvcp140.dll', 'msvcp140_1.dll', 'concrt140.dll')
+                'msvcp140.dll', 'msvcp140_1.dll', 'concrt140.dll',
+                'msvcr100.dll')
 
 FAILS: list[str] = []
 
@@ -100,6 +102,23 @@ def bump(version: str, level: str) -> str:
     return f'{major}.{minor}.{patch + 1}'
 
 
+def version_resources(version: str) -> tuple[str, str]:
+    """Return ``(quadruplet, display)`` for the Windows version resource.
+
+    A normal ``X.Y.Z`` release maps to ``(X, Y, Z, 0)`` / ``X.Y.Z.0``.  A
+    patch on an existing release such as ``0.5.13.1`` already has four parts
+    and is used as-is: it marks the build as a 0.5.13 derivative without
+    colliding with the 0.5.14 mainline, which contains different code.
+    """
+    parts = version.split('.')
+    if len(parts) not in (3, 4) or not all(part.isdigit() for part in parts):
+        raise SystemExit(f'cannot use non-numeric version {version!r}')
+    numbers = tuple(int(part) for part in parts)
+    quadruplet = numbers if len(numbers) == 4 else numbers + (0,)
+    display = version if len(numbers) == 4 else f'{version}.0'
+    return str(quadruplet), display
+
+
 def write_version(version: str, release_date: str) -> None:
     """Write the version into every place that carries it.
 
@@ -116,15 +135,14 @@ def write_version(version: str, release_date: str) -> None:
                   f"__release_date__ = '{release_date}'", text)
     VERSION_FILE.write_text(text, encoding='utf-8')
 
-    numbers = tuple(int(part) for part in version.split('.'))
-    quadruplet = numbers + (0,)
+    quadruplet, display = version_resources(version)
     text = RESOURCE_FILE.read_text(encoding='utf-8')
     text = re.sub(r'filevers=\([^)]*\)', f'filevers={quadruplet}', text)
     text = re.sub(r'prodvers=\([^)]*\)', f'prodvers={quadruplet}', text)
     text = re.sub(r"StringStruct\('FileVersion', '[^']+'\)",
-                  f"StringStruct('FileVersion', '{version}.0')", text)
+                  f"StringStruct('FileVersion', '{display}')", text)
     text = re.sub(r"StringStruct\('ProductVersion', '[^']+'\)",
-                  f"StringStruct('ProductVersion', '{version}.0')", text)
+                  f"StringStruct('ProductVersion', '{display}')", text)
     RESOURCE_FILE.write_text(text, encoding='utf-8')
 
     text = INSTALLER_FILE.read_text(encoding='utf-8')
@@ -174,7 +192,7 @@ def copy_runtime_dlls(source: Path | None) -> None:
             shutil.copy2(src, target / name)
     present = all((INTERNAL / n).is_file() and (VENDOR / n).is_file()
                   for n in RUNTIME_DLLS)
-    check('6 个 VC++/MFC DLL 已补齐（两处）', present)
+    check(f'{len(RUNTIME_DLLS)} 个 VC++/MFC DLL 已补齐（两处）', present)
 
 
 def build(version: str) -> None:
@@ -183,6 +201,8 @@ def build(version: str) -> None:
     run('PyInstaller 构建', [python, '-m', 'PyInstaller', str(SPEC),
                              '--noconfirm', '--clean'],
         cwd=APP_ROOT, timeout=1800)
+    if FAILS:
+        return
 
     exe = APP_DIR / 'TunerLab.exe'
     check('生成 TunerLab.exe', exe.is_file(), str(exe))
@@ -193,8 +213,15 @@ def build(version: str) -> None:
     check('zauxdll/zmotion 由 spec 带入',
           (VENDOR / 'zauxdll.dll').is_file() and (VENDOR / 'zmotion.dll').is_file())
 
-    out = run('冻结包 --version', [str(exe), '--version'], cwd=APP_DIR, timeout=180)
-    check(f'版本号 = {version}', version in out, out[:120])
+    run('冻结包 --version', [str(exe), '--version'], cwd=APP_DIR, timeout=180)
+    # A windowed PyInstaller EXE may have no stdout at all; the Windows file
+    # version resource is the authoritative place to read the version.
+    out = run('冻结包版本资源', [
+        'powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
+        '(Get-Item -LiteralPath $env:TUNERLAB_RELEASE_EXE).VersionInfo.FileVersion'],
+        cwd=APP_DIR, env={'TUNERLAB_RELEASE_EXE': str(exe)}, timeout=180)
+    _, display = version_resources(version)
+    check(f'版本号 = {version}', out.strip() == display, out[:120])
 
     run('冻结包 --smoke-test', [str(exe), '--smoke-test'], cwd=APP_DIR, timeout=600)
 
@@ -278,18 +305,22 @@ def main() -> int:
     if args.dry_run:
         print('dry-run：未改动任何文件')
         return 0
+    if sys.platform != 'win32':
+        parser.error('Windows releases must be built on Windows x64')
 
+    _, display = version_resources(version)
     write_version(version, release_date)
     check('版本号写入 version.py',
           current_version() == version, current_version())
     check('版本号写入 version_info.txt',
-          f"'{version}.0'" in RESOURCE_FILE.read_text(encoding='utf-8'))
+          f"'{display}'" in RESOURCE_FILE.read_text(encoding='utf-8'))
     check('版本号写入 installer.iss',
           f'#define MyAppVersion "{version}"'
           in INSTALLER_FILE.read_text(encoding='utf-8'))
 
     build(version)
-    archive(version)
+    if not FAILS:
+        archive(version)
 
     if FAILS:
         print(f'\n{len(FAILS)} 项失败: {FAILS}')

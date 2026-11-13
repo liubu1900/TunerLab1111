@@ -14,17 +14,22 @@ and a scan reused whatever the instrument had been configured with.  Now points
 and step are two views of one span and stay consistent:
 
 * editing the step recomputes the point count;
-* editing the point count recomputes the step;
-* pressing 单次扫描 pushes start/stop/points/power/IFBW to the instrument *before*
-  triggering, then compares the returned frequency axis with the request and
-  reports any disagreement instead of silently showing stale data.
+* editing the point count recomputes the step.
+
+**Instrument settings are read, not overwritten (0.5.13.3).**  Connecting only
+opens the SCPI session, and 单次扫描 only triggers and reads: neither writes
+start/stop/points/power/IFBW.  The analyzer's own setup is queried read-only so
+the returned frequency axis matches its trace.  The sweep form is locked against
+accidental edits (click a box to unlock it) and its values reach the instrument
+only through 下发扫描参数.  从矢网读取当前参数 refreshes the form from the box.
 """
 from __future__ import annotations
 
 from typing import Any
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QGridLayout,
     QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox,
@@ -45,6 +50,72 @@ S_PARAMETERS = ('S11', 'S21', 'S12', 'S22')
 #: Rows kept in the table; a 2000-point sweep is summarised, not dumped.
 MAX_TABLE_ROWS = 400
 
+#: The button only opens the SCPI session now; the label must not promise a
+#: configuration that would silently overwrite the operator's front panel.
+CONNECT_LABEL = '连接'
+READ_CONFIG_LABEL = '从矢网读取当前参数'
+APPLY_LABEL = '下发扫描参数'
+
+#: Subtle tint used while a sweep field is locked (light instrument theme).
+LOCKED_BASE = QColor('#eaf0f6')
+
+
+class _ClickToEdit(QObject):
+    """Keep a spin box read-only until the operator explicitly clicks into it.
+
+    A stray wheel scroll or key press used to change the sweep settings without
+    anybody noticing.  ``setReadOnly`` blocks keyboard, wheel and arrow input;
+    a mouse press on the box (or its line edit) unlocks it, and leaving the
+    field locks it again.  Programmatic ``setValue`` still works while locked,
+    so reading the instrument's config can refresh the form without exposing
+    it to accidental edits.
+    """
+
+    def __init__(self, spin, parent=None):
+        super().__init__(spin if parent is None else parent)
+        self._spin = spin
+        self._locked = True
+        self._base = spin.palette().color(QPalette.ColorRole.Base)
+        spin.setReadOnly(True)
+        spin.setToolTip('默认锁定；用鼠标点一下即可修改，移开焦点后自动重新锁定')
+        spin.installEventFilter(self)
+        line = spin.lineEdit()
+        if line is not None:
+            line.installEventFilter(self)
+        self._tint(True)
+
+    def eventFilter(self, watched, event):
+        kind = event.type()
+        if kind == QEvent.Type.MouseButtonPress:
+            self.unlock()
+        elif kind == QEvent.Type.FocusOut and watched is not self._spin:
+            self.lock()
+        return super().eventFilter(watched, event)
+
+    def _tint(self, locked: bool) -> None:
+        palette = self._spin.palette()
+        palette.setColor(QPalette.ColorRole.Base,
+                         LOCKED_BASE if locked else self._base)
+        self._spin.setPalette(palette)
+
+    def unlock(self) -> None:
+        if not self._locked:
+            return
+        self._locked = False
+        self._spin.setReadOnly(False)
+        self._tint(False)
+
+    def lock(self) -> None:
+        if self._locked:
+            return
+        self._locked = True
+        self._spin.setReadOnly(True)
+        self._tint(True)
+
+    @property
+    def locked(self) -> bool:
+        return self._locked
+
 
 class VnaPage(QWidget):
     """Instrument connection, sweep setup and four-trace acquisition."""
@@ -58,7 +129,12 @@ class VnaPage(QWidget):
         self.state = app_state
         cfg = self.state.vna['config']
         self._syncing = False
+        self._loading = False
         self._last_scan_step_hz = 0.0
+        self._is_connected = False
+        self._param_busy = False
+        self._scan_busy = False
+        self._param_locks: list[_ClickToEdit] = []
 
         root = QVBoxLayout(self)
         root.setContentsMargins(22, 0, 22, 18)
@@ -149,6 +225,7 @@ class VnaPage(QWidget):
         self.connect_button.clicked.connect(self.on_connect)
         self.disconnect_button.clicked.connect(self.on_disconnect)
         self.apply_button.clicked.connect(self.on_apply_sweep)
+        self.read_button.clicked.connect(self.on_read_config)
         self.scan_button.clicked.connect(self.on_scan)
         self.errors_button.clicked.connect(self.on_read_errors)
         self.clear_button.clicked.connect(self.on_clear)
@@ -167,6 +244,11 @@ class VnaPage(QWidget):
         self.points_spin.valueChanged.connect(self._update_step_from_points)
         self.step_spin.valueChanged.connect(self._update_points_from_step)
         self._update_step_from_points()
+        # Lock every sweep field against accidental edits.  A mouse click
+        # unlocks one field until it loses focus; apply / read-back re-lock all.
+        self._param_locks = [_ClickToEdit(spin) for spin in (
+            self.start_spin, self.stop_spin, self.points_spin,
+            self.step_spin, self.power_spin, self.ifbw_spin)]
         self.refresh_status()
 
         self.timer = QTimer(self)
@@ -230,8 +312,11 @@ class VnaPage(QWidget):
         form.addRow('超时', self.timeout_spin)
 
         row = QHBoxLayout()
-        self.connect_button = QPushButton('连接并配置')
+        self.connect_button = QPushButton(CONNECT_LABEL)
         self.connect_button.setProperty('accent', True)
+        self.connect_button.setToolTip(
+            '只建立通信连接并读取仪器当前设置；不改变扫频、功率或中频带宽。\n'
+            '如需修改仪器参数，请点「下发扫描参数」。')
         self.disconnect_button = QPushButton('断开')
         self.disconnect_button.setEnabled(False)
         row.addWidget(self.connect_button)
@@ -288,7 +373,25 @@ class VnaPage(QWidget):
         self.ifbw_spin.setValue(float(cfg['ifbw_hz']))
         form.addRow('中频带宽', self.ifbw_spin)
 
-        self.apply_button = QPushButton('下发扫描参数')
+        self.lock_hint = QLabel(
+            '参数默认锁定（浅色底）：鼠标点一下输入框才能修改，移开焦点自动重新锁定。\n'
+            '只有点「下发扫描参数」才会写入仪器。')
+        self.lock_hint.setObjectName('PageHint')
+        self.lock_hint.setWordWrap(True)
+        self.lock_hint.setFont(px_font(11, 'light'))
+        form.addRow('', self.lock_hint)
+
+        self.read_button = QPushButton(READ_CONFIG_LABEL)
+        self.read_button.setToolTip(
+            '只读查询矢网当前的起止频率 / 点数 / 功率 / 中频带宽并回填表单，'
+            '不修改仪器任何设置')
+        self.read_button.setEnabled(False)
+        form.addRow('', self.read_button)
+
+        self.apply_button = QPushButton(APPLY_LABEL)
+        self.apply_button.setToolTip(
+            '把表单中的参数写入矢网；连接和单次扫描都不会写入任何参数')
+        self.apply_button.setEnabled(False)
         form.addRow('', self.apply_button)
         return box
 
@@ -414,12 +517,12 @@ class VnaPage(QWidget):
             max(0, self.interface_combo.findData(
                 str(cfg.get('interface') or 'tcpip'))))
         self.resource_edit.setText(str(cfg.get('resource') or 'GPIB0::17::INSTR'))
-        self.start_spin.blockSignals(True)
-        self.stop_spin.blockSignals(True)
-        self.start_spin.setValue(float(cfg['start_hz']) / 1e9)
-        self.stop_spin.setValue(float(cfg['stop_hz']) / 1e9)
-        self.start_spin.blockSignals(False)
-        self.stop_spin.blockSignals(False)
+        self._loading = True
+        try:
+            self.start_spin.setValue(float(cfg['start_hz']) / 1e9)
+            self.stop_spin.setValue(float(cfg['stop_hz']) / 1e9)
+        finally:
+            self._loading = False
 
     def _span_hz(self) -> float:
         return (self.stop_spin.value() - self.start_spin.value()) * 1e9
@@ -476,14 +579,18 @@ class VnaPage(QWidget):
             self.kpi_step.set_value(f'{step_hz / 1e6:.4f} MHz', '设定步进')
         self.span_label.setStyleSheet('color:#5b6b7c;')
 
-    def _mark_stale(self) -> None:
-        if any(plot.has_data() for plot in self.traces.values()):
-            self.stale_label.setText(
-                '⚠ 扫描参数已修改：图上仍是上一次扫描的数据，点「单次扫描」刷新。')
-            self.stale_label.setStyleSheet(
-                'color:#8a5a00; background:#fff6e0; border:1px solid #f0d9a8;'
-                'border-radius:4px; padding:5px 8px;')
-            self.stale_label.setVisible(True)
+    def _mark_stale(self, text: str | None = None) -> None:
+        """Warn that the trace on screen no longer matches the instrument."""
+        if self._loading or not any(plot.has_data()
+                                    for plot in self.traces.values()):
+            return
+        self.stale_label.setText(text or (
+            '⚠ 表单参数已修改但尚未下发：仪器仍按它自己的设置工作。\n'
+            '点「下发扫描参数」写入仪器，再点「单次扫描」刷新曲线。'))
+        self.stale_label.setStyleSheet(
+            'color:#8a5a00; background:#fff6e0; border:1px solid #f0d9a8;'
+            'border-radius:4px; padding:5px 8px;')
+        self.stale_label.setVisible(True)
 
     # ---------------- body ----------------
     def _target_text(self) -> str:
@@ -519,8 +626,31 @@ class VnaPage(QWidget):
         self.report(f'矢网操作失败: {exc}')
 
     # ---------------- actions ----------------
+    def _set_param_busy(self, busy: bool, active: str = '') -> None:
+        """Disable both parameter buttons while a request is in flight."""
+        self._param_busy = busy
+        self.read_button.setText(
+            '读取中…' if busy and active == 'read' else READ_CONFIG_LABEL)
+        self.apply_button.setText(
+            '下发中…' if busy and active == 'apply' else APPLY_LABEL)
+        self._render_param_buttons()
+
+    def _render_param_buttons(self) -> None:
+        enabled = self._is_connected and not self._param_busy
+        self.read_button.setEnabled(enabled)
+        self.apply_button.setEnabled(enabled)
+
+    def _lock_param_fields(self) -> None:
+        for guard in self._param_locks:
+            guard.lock()
+
     def on_connect(self) -> None:
         body = self._body()
+        # A connection is communication only.  Strip every sweep value from
+        # the request so no code path can silently apply them to the analyzer.
+        for key in ('start_hz', 'stop_hz', 'points', 'step_hz',
+                    'power_dbm', 'ifbw_hz'):
+            body.pop(key, None)
         if body['interface'] == 'gpib':
             from tuner.vna_drivers import normalise_gpib_resource
             try:
@@ -539,14 +669,14 @@ class VnaPage(QWidget):
                           description='vna connect')
 
     def _connected(self, status: dict) -> None:
-        self.connect_button.setText('连接并配置')
+        self.connect_button.setText(CONNECT_LABEL)
         self.connect_button.setEnabled(True)
         self._render(status)
-        self.report(f"矢网已连接: {status.get('idn') or ''}")
-        self._mark_stale()
+        self.report('矢网已连接（仅通信，未修改仪器参数）: '
+                    f"{status.get('idn') or ''}")
 
     def _connect_failed(self, exc: BaseException) -> None:
-        self.connect_button.setText('连接并配置')
+        self.connect_button.setText(CONNECT_LABEL)
         self.connect_button.setEnabled(True)
         self.report_error(exc)
 
@@ -559,11 +689,61 @@ class VnaPage(QWidget):
         self._render(status)
         self.report('矢网已断开')
 
+    def on_read_config(self) -> None:
+        """Query the analyzer's current settings into the form (read-only)."""
+        self._set_param_busy(True, 'read')
+
+        def done(result):
+            self._set_param_busy(False)
+            self._config_read(result)
+
+        def failed(exc):
+            self._set_param_busy(False)
+            self.report_error(exc)
+
+        run_in_background(
+            lambda: handlers.vna_read_config(self.state, {}),
+            on_done=done, on_error=failed, description='vna read config')
+
+    def _config_read(self, result: dict) -> None:
+        cfg = dict((result or {}).get('config') or {})
+        # Programmatic fills must not be mistaken for an operator edit.
+        self._loading = True
+        try:
+            for spin, key, scale in (
+                    (self.start_spin, 'start_hz', 1e9),
+                    (self.stop_spin, 'stop_hz', 1e9),
+                    (self.points_spin, 'points', 1),
+                    (self.power_spin, 'power_dbm', 1),
+                    (self.ifbw_spin, 'ifbw_hz', 1)):
+                value = cfg.get(key)
+                if value is None:
+                    continue
+                spin.setValue(int(value) if spin is self.points_spin
+                              else float(value) / scale)
+        finally:
+            self._loading = False
+        self._lock_param_fields()
+        fallback = cfg.get('fallback') or []
+        if cfg.get('source') == 'cached' or len(fallback) >= 5:
+            self.report('仪器未返回配置参数，表单保留当前值')
+        elif fallback:
+            self.report('已从矢网读取当前参数（部分字段未返回，保留本机值：'
+                        + '、'.join(str(f) for f in fallback) + '）')
+        else:
+            self.report(
+                f"已从矢网读取当前参数：{self.start_spin.value():.4f}–"
+                f"{self.stop_spin.value():.4f} GHz · {self.points_spin.value()} 点 · "
+                f"{self.power_spin.value():.2f} dBm · "
+                f"{self.ifbw_spin.value():.0f} Hz")
+
     def on_apply_sweep(self) -> None:
+        """The only action that writes sweep settings to the instrument."""
         body = self._body()
         if body['stop_hz'] <= body['start_hz']:
             QMessageBox.warning(self, '扫描参数', '终止频率必须大于起始频率')
             return
+        self._set_param_busy(True, 'apply')
 
         def apply_all():
             handlers.vna_set_sweep(self.state, body)
@@ -571,48 +751,46 @@ class VnaPage(QWidget):
             handlers.vna_set_ifbw(self.state, body)
             return handlers.vna_status(self.state, {})
 
-        run_in_background(apply_all, on_done=self._applied,
-                          on_error=self.report_error, description='vna sweep')
+        def done(status):
+            self._set_param_busy(False)
+            self._applied(status)
+
+        def failed(exc):
+            self._set_param_busy(False)
+            self.report_error(exc)
+
+        run_in_background(apply_all, on_done=done, on_error=failed,
+                          description='vna sweep')
 
     def _applied(self, status: dict) -> None:
         self._render(status)
+        self._lock_param_fields()
         self.report(
             f"已下发扫描参数：{self.start_spin.value():.4f}–{self.stop_spin.value():.4f} GHz · "
             f"{self.points_spin.value()} 点 · 步进 {self.step_spin.value():.4f} MHz")
-        self._mark_stale()
+        self._mark_stale('⚠ 扫描参数已写入仪器，图上仍是上一次扫描的数据；'
+                         '点「单次扫描」按新设置重新采集。')
 
     def on_scan(self) -> None:
-        """Configure, trigger and read in one go.
+        """Trigger one sweep and read it, using the analyzer's own setup.
 
-        A sweep that is triggered without re-sending the parameters returns
-        whatever the instrument was last set to -- which is exactly how the old
-        page ended up showing a 0.5 GHz grid while the form said 10 MHz.
+        No ``set_sweep`` / ``set_power`` / ``set_ifbw`` and no form validation:
+        the form is a view and an editor for 下发扫描参数, not a precondition
+        for scanning.  ``vna_fetch`` refreshes the local frequency grid with
+        read-only queries, and ``measure()`` performs the single trigger --
+        calling ``vna_trigger`` here as well used to sweep the box twice.
         """
-        body = self._body()
-        if body['stop_hz'] <= body['start_hz']:
-            QMessageBox.warning(self, '扫描参数', '终止频率必须大于起始频率')
-            return
-
         self.scan_button.setEnabled(False)
         self.scan_button.setText('扫描中…')
+        self._scan_busy = True
         self.stale_label.setVisible(False)
 
-        def acquire():
-            handlers.vna_set_sweep(self.state, body)
-            handlers.vna_set_power(self.state, body)
-            handlers.vna_set_ifbw(self.state, body)
-            handlers.vna_trigger(self.state, {})
-            data = handlers.vna_fetch(self.state, {})
-            data['requested'] = {
-                'start_hz': body['start_hz'], 'stop_hz': body['stop_hz'],
-                'points': body['points'], 'step_hz': body['step_hz'],
-            }
-            return data
-
-        run_in_background(acquire, on_done=self._show_scan,
-                          on_error=self._scan_failed, description='vna scan')
+        run_in_background(lambda: handlers.vna_fetch(self.state, {}),
+                          on_done=self._show_scan, on_error=self._scan_failed,
+                          description='vna scan')
 
     def _scan_failed(self, exc: BaseException) -> None:
+        self._scan_busy = False
         self.scan_button.setEnabled(True)
         self.scan_button.setText('单次扫描（4 路）')
         self.report_error(exc)
@@ -627,6 +805,7 @@ class VnaPage(QWidget):
 
     # ---------------- results ----------------
     def _show_scan(self, data: dict) -> None:
+        self._scan_busy = False
         self.scan_button.setEnabled(True)
         self.scan_button.setText('单次扫描（4 路）')
         frequencies = np.asarray(data['frequencies_hz'], float)
@@ -646,7 +825,8 @@ class VnaPage(QWidget):
         self._summarise(frequencies, requested)
         self.stale_label.setVisible(False)
         self._last_scan_step_hz = self._actual_step(frequencies)
-        self.report(f"扫描完成: {len(frequencies)} 点 · {data.get('vendor') or ''}")
+        self.report(f"扫描完成（按矢网当前配置，未下发参数）: {len(frequencies)} 点 · "
+                    f"{data.get('vendor') or ''}")
 
     @staticmethod
     def _actual_step(frequencies: np.ndarray) -> float:
@@ -739,10 +919,12 @@ class VnaPage(QWidget):
 
     def _render(self, status: dict) -> None:
         connected = bool(status.get('connected'))
+        self._is_connected = connected
         self.connect_button.setEnabled(not connected)
         self.disconnect_button.setEnabled(connected)
-        self.scan_button.setEnabled(connected)
+        self.scan_button.setEnabled(connected and not self._scan_busy)
         self.errors_button.setEnabled(connected)
+        self._render_param_buttons()
         if hasattr(self, 'kpi_state'):
             self.kpi_state.set_value('已连接' if connected else '未连接',
                                      str(status.get('idn') or '未连接仪器')[:40],

@@ -43,7 +43,7 @@ _AXIS_PARAM_BOUNDS = {
 __all__ = ['AxisParams', 'AXIS_NAMES', 'axis_index', 'default_axis_params',
            'TUNER_AXES', 'CONTROLLER_AXES', 'TUNER_MODELS', 'tuner_axes',
            'axis_count_of', 'DEFAULT_AXIS_COUNT', 'COORDINATE_FIELDS',
-           'affects_coordinate_frame']
+           'affects_coordinate_frame', 'VISIBLE_TUNER_MODELS']
 
 #: Controller axis order. The shared X axis is index 0; the probes follow.
 #:
@@ -67,6 +67,14 @@ TUNER_MODELS: dict[int, tuple[str, ...]] = {
     3: ('X', 'Z1', 'Z2'),
     4: ('X', 'Z1', 'Z2', 'Z3'),
 }
+
+#: Tuner models offered in the operator UI.  The machine on site currently
+#: carries the 3-axis (2-probe) tuner only, so the 4-axis entry is hidden for
+#: now; add ``4`` back to this tuple to restore it -- no other change needed.
+#: ``TUNER_MODELS`` deliberately keeps *both* definitions so an old four-axis
+#: calibration library stays readable, and the HTTP model API still accepts
+#: both counts.
+VISIBLE_TUNER_MODELS: tuple[int, ...] = (3,)
 
 #: Axis count assumed when nothing else is known.
 DEFAULT_AXIS_COUNT = 4

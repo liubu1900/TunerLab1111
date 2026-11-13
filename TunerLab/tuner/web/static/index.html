@@ -71,12 +71,10 @@
             <label>tuner 型号</label>
             <select id="hw-model">
               <option value="3">3 轴 tuner (X, Z1, Z2)</option>
-              <option value="4">4 轴 tuner (X, Z1, Z2, Z3)</option>
             </select>
           </div>
-          <p class="hint">选择本机 tuner 型号：3 轴为 2 个探针（X/Z1/Z2），4 轴为 3 个探针
-            （X/Z1/Z2/Z3）。切换后所有页面只显示该型号的轴，控制器物理轴序号不变，
-            已保存的校准数据依然可用。</p>
+          <p class="hint">当前现场仅提供 3 轴机型（X / Z1 / Z2，2 个探针），4 轴选项已隐藏。
+            已保存的 4 轴校准库仍可读取；切换型号只影响本机命令的轴集合，控制器物理轴序号不变。</p>
           <div class="btn-row">
             <button id="hw-connect" class="btn primary">连接</button>
             <button id="hw-disconnect" class="btn">断开</button>
@@ -799,9 +797,10 @@
             <input id="vna-ifbw" class="num" type="number" value="1000" />
           </div>
           <div class="btn-row wrap">
-            <button id="vna-connect" class="btn primary">连接并配置</button>
+            <button id="vna-connect" class="btn primary">连接（仅通信）</button>
             <button id="vna-disconnect" class="btn">断开</button>
             <button id="vna-idn" class="btn">读取 IDN</button>
+            <p class="hint">连接只建立通信并读取仪器当前设置，不会修改扫频、功率或中频带宽。</p>
           </div>
         </div>
         <div class="card">
@@ -813,7 +812,9 @@
         </div>
         <div class="card">
           <h2>采集</h2>
+          <p class="hint">单次扫描按矢网当前设置触发并读数，不下发任何参数；只有下面两个「下发」按钮才会写入仪器。</p>
           <div class="btn-row wrap">
+            <button id="vna-read-config" class="btn">从矢网读取当前参数</button>
             <button id="vna-set-sweep" class="btn">下发扫频设置</button>
             <button id="vna-set-power" class="btn">下发功率/中频</button>
             <button id="vna-trigger" class="btn primary">单次扫描并读取</button>

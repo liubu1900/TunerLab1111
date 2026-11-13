@@ -127,7 +127,12 @@ def test_windows_release_versions_agree():
     resource = (root / 'version_info.txt').read_text(encoding='utf-8')
     installer = (root / 'installer.iss').read_text(encoding='utf-8')
     assert f'"{__version__}"' in installer
-    assert repr(__version__ + '.0') in resource
-    numeric = ', '.join(__version__.split('.') + ['0'])
+    # A normal X.Y.Z release displays as X.Y.Z.0 in the Windows resource;
+    # a four-part patch release (e.g. 0.5.13.2) already fills the quadruplet.
+    parts = __version__.split('.')
+    four_parts = len(parts) == 4
+    display = __version__ if four_parts else __version__ + '.0'
+    numeric = ', '.join(parts if four_parts else parts + ['0'])
+    assert repr(display) in resource
     assert f'filevers=({numeric})' in resource
     assert f'prodvers=({numeric})' in resource

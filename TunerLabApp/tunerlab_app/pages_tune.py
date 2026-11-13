@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout,
 )
 
+from tuner.axis_params import tuner_axes
 from tuner.rf import gamma_to_z
 from tuner.ui import SmithChart
 from tuner.ui_theme import numeric_font
@@ -31,13 +32,28 @@ from .ui import (Card, field_grid, field_label, hint_label, page_header,
                    smith_control_row)
 
 
+def _axis_caption(n_axes: int, sep: str = ' / ') -> str:
+    """Name the position vector with the *loaded library's* axis model.
+
+    The old page printed ``X / Z1 / Z2 / Z3`` unconditionally, so a 3-axis
+    library (X/Z1/Z2) appeared to have a fourth, non-existent probe.  The
+    library is the authority: its position vector has one column per axis.
+    """
+    try:
+        return sep.join(tuner_axes(int(n_axes)))
+    except (ValueError, TypeError):
+        names = ('X',) + tuple(f'Z{i + 1}' for i in range(max(0, n_axes - 1)))
+        return sep.join(names)
+
+
 class StudioSmithPage(_StudioPage):
-    """Pick a Γ on the chart, inspect it, then move there and verify.
+    """Pick a Γ on the chart, inspect it, then move there (optionally verify).
 
     The chart is no longer a passive viewer: a left click inside the unit
     circle selects the target impedance, the information card shows every
-    quantity derived from it, and one button drives the whole
-    search → move → VNA measurement → judgement loop.
+    quantity derived from it, and two buttons share the same
+    search → move path: 「仅移动」stops at the arrived position, while
+    「移动并实测验证」continues with a VNA sweep and a full judgement.
     """
 
     def __init__(self, app_state, parent=None):
@@ -49,7 +65,9 @@ class StudioSmithPage(_StudioPage):
         root.addLayout(_page_title(
             'Smith 图',
             '青色为校准库实测点，琥珀色为目标，粉色为当前候选，紫色十字为左键点选目标。'
-            '点选后可搜索对应机械位置并一键「移动并实测验证」。'
+            '点选后可搜索对应机械位置，用「仅移动」只到位，或一键「移动并实测验证」。'
+            '已校准完成的库自包含：只连 Tuner 控制箱即可按库中的位置搜索和移动，'
+            '无需再运行校准向导或连接矢网；轴名按库的实际轴数显示。'
             '图上任意一点都是「测过的位置」，不是可达范围边界。'))
 
         controls = QHBoxLayout()
@@ -116,11 +134,17 @@ class StudioSmithPage(_StudioPage):
 
         buttons = QHBoxLayout()
         self.search_button = QPushButton('搜索对应点位')
+        self.move_only_button = QPushButton('仅移动')
+        self.move_only_button.setToolTip(
+            '按点选目标 Γ 搜索最佳机械位置并移动到位。\n'
+            '不扫矢网、不做偏差判定、不写验证报告；未连接矢网时也能使用。')
         self.move_button = QPushButton('移动并实测验证')
         self.move_button.setProperty('accent', True)
         self.search_button.setEnabled(False)
+        self.move_only_button.setEnabled(False)
         self.move_button.setEnabled(False)
         buttons.addWidget(self.search_button)
+        buttons.addWidget(self.move_only_button)
         buttons.addWidget(self.move_button)
         self.reset_fault_button = QPushButton('复位运动故障')
         self.reset_fault_button.setToolTip(
@@ -135,7 +159,8 @@ class StudioSmithPage(_StudioPage):
         self.verdict.setReadOnly(True)
         self.verdict.setFont(numeric_font(9))
         self.verdict.setPlaceholderText(
-            '点选目标 → 点「移动并实测验证」，这里给出到位后的实测 Z / Γ / VSWR 与偏差判定')
+            '点选目标 → 「仅移动」只到位；「移动并实测验证」给出到位后的'
+            '实测 Z / Γ / VSWR 与偏差判定')
         self.verdict.setMinimumHeight(180)
         verdict_layout.addWidget(self.verdict)
         side.addWidget(verdict_box, 1)
@@ -146,6 +171,7 @@ class StudioSmithPage(_StudioPage):
         self.chart.picked.connect(self.on_pick)
         self.chart.hovered.connect(self.on_hover)
         self.search_button.clicked.connect(self.on_search)
+        self.move_only_button.clicked.connect(self.on_move_only)
         self.move_button.clicked.connect(self.on_move_verify)
         self.reset_fault_button.clicked.connect(self.on_reset_fault)
         self.refresh()
@@ -221,6 +247,7 @@ class StudioSmithPage(_StudioPage):
     def _restore_buttons(self) -> None:
         enabled = self._picked is not None
         self.search_button.setEnabled(enabled)
+        self.move_only_button.setEnabled(enabled)
         self.move_button.setEnabled(enabled)
         controller = self._motion()
         self.reset_fault_button.setEnabled(
@@ -340,7 +367,8 @@ class StudioSmithPage(_StudioPage):
             return
         position = ' | '.join(f'{v:.4f}' for v in best['position'])
         gamma = best['gamma']
-        lines = [f'X / Z1 / Z2 / Z3   {position}',
+        caption = _axis_caption(len(best['position']))
+        lines = [f'{caption}   {position}',
                  f"预测 Γ   {gamma['re']:+.5f}{gamma['im']:+.5f}j",
                  f'|ΔΓ|   {best["error"]:.6g}']
         impedance = best.get('impedance')
@@ -351,26 +379,85 @@ class StudioSmithPage(_StudioPage):
         self.report('已找到点选阻抗对应的机械位置')
         self.refresh()
 
-    def on_move_verify(self) -> None:
+    def _run_move(self, handler, done, error_title: str,
+                  description: str) -> None:
+        """Run one of the two Smith-pick moves off the GUI thread.
+
+        Both buttons command the axes, so both must be disabled for the whole
+        operation -- a second move while the axes are still travelling is
+        unsafe.  ``handler`` is either the move-only or the verified backend
+        call; everything else (target body, button state, error reporting) is
+        shared.
+        """
         if self._picked is None:
             return
         body = self._body({'gamma_re': self._picked.real,
                            'gamma_im': self._picked.imag})
         self.search_button.setEnabled(False)
+        self.move_only_button.setEnabled(False)
         self.move_button.setEnabled(False)
 
-        def done(report):
+        def finished(report):
             self._restore_buttons()
-            self._verified(report)
+            done(report)
 
         def failed(exc):
             self._restore_buttons()
-            self.fail(exc, '移动或验证失败')
+            self.fail(exc, error_title)
 
-        run_in_background(
-            lambda: handlers.studio_move_to_gamma(self.state, body),
-            on_done=done, on_error=failed,
-            description='smith pick move verify')
+        run_in_background(lambda: handler(self.state, body),
+                          on_done=finished, on_error=failed,
+                          description=description)
+
+    def on_move_only(self) -> None:
+        """「仅移动」: search the picked Γ and move there, without measuring."""
+        self._run_move(handlers.studio_move_to_gamma_only, self._moved_only,
+                       '移动失败', 'smith pick move only')
+
+    def _moved_only(self, report: dict) -> None:
+        """Show the arrived position, clearly labelled as *not* a measurement.
+
+        The verdict card belongs to the verified action; a move-only result
+        must never look like a pass/fail judgement on RF performance.
+        """
+        target_g = complex(report.get('target_gamma_real', 0.0),
+                           report.get('target_gamma_imag', 0.0))
+        predicted_g = complex(report.get('predicted_gamma_real', 0.0),
+                              report.get('predicted_gamma_imag', 0.0))
+        kind = {'calibrated point': '已标定点', 'interpolated': '插值位置'}.get(
+            report.get('prediction_kind'), report.get('prediction_kind', '—'))
+        position = ' | '.join(f'{v:.4f}' for v in report.get('position', []))
+        commanded = ' | '.join(
+            f'{v:.4f}' for v in report.get('commanded_position', []))
+        caption = _axis_caption(len(report.get('position', [])), '|')
+        spec = SmithSpec(z0=self._z0(),
+                         tolerance=float(report.get('tolerance', 0.05)))
+        target_card = spec.metrics(target_g)
+        lines = [
+            '仅移动（未实测 · 未写验证报告）',
+            '目标',
+            f"  Z  {target_card['z_label']}",
+            f"  Γ  {target_card['gamma_rect']}",
+            '到位',
+            f"  机械位置 {caption}   {position or '—'}",
+            f"  指令位置 {caption}   {commanded or '—'}",
+            f"  位置最大偏差 {report.get('position_error_max', 0):.4f} mm",
+            f"  预测来源 {kind}",
+            f"  预测 Γ   {predicted_g.real:+.5f}{predicted_g.imag:+.5f}j"
+            f"   预测 |ΔΓ| {report.get('predicted_error', 0):.6g}",
+            '说明',
+            '  本次未扫矢网、未做偏差判定，也未写入 HDF5 validation 组。',
+            '  如需实测结论，请点「移动并实测验证」。',
+        ]
+        self.verdict.setPlainText('\n'.join(lines))
+        self.verdict.setStyleSheet('')
+        self.report('Smith 点选仅移动完成（未实测）')
+        self.refresh()
+
+    def on_move_verify(self) -> None:
+        """「移动并实测验证」: move, sweep the VNA, judge and save a report."""
+        self._run_move(handlers.studio_move_to_gamma, self._verified,
+                       '移动或验证失败', 'smith pick move verify')
 
     def _verified(self, report: dict) -> None:
         target_g = complex(report.get('target_gamma_real', 0.0),
@@ -381,6 +468,7 @@ class StudioSmithPage(_StudioPage):
         error = report.get('vector_error', 0.0)
         passed = bool(report.get('within_tolerance', False))
         position = ' | '.join(f'{v:.4f}' for v in report.get('position', []))
+        caption = _axis_caption(len(report.get('position', [])), '|')
         kind = {'calibrated point': '已标定点', 'interpolated': '插值位置'}.get(
             report.get('prediction_kind'), report.get('prediction_kind', '—'))
         pct_r = report.get('impedance_delta_r_percent')
@@ -395,7 +483,7 @@ class StudioSmithPage(_StudioPage):
             f"  Γ  {target_card['gamma_rect']}",
             f"  |Γ| {target_card['gamma_mag']:.4f}   VSWR {target_card['vswr']}",
             '到位',
-            f"  机械位置 X|Z1|Z2|Z3   {position or '—'}",
+            f"  机械位置 {caption}   {position or '—'}",
             f"  预测来源 {kind}   "
             f"位置最大偏差 {report.get('position_error_max', 0):.4f} mm",
             '实测（到位后重新扫矢网）',

@@ -52,7 +52,13 @@ async function loadHwSettings() {
     $('hw-ip').value = r.data.ip || '192.168.0.11';
     $('hw-auto').checked = !!r.data.connect_on_start;
     $('hw-settings-path').textContent = r.data.path || '—';
-    $('hw-model').value = String(r.data.axis_count || 4);
+    // The operator UI currently offers the 3-axis model only.  A legacy
+    // settings file can still report 4; clamp it instead of leaving the
+    // select blank (no matching <option> would make .value a no-op).
+    const model = $('hw-model');
+    const wanted = String(r.data.axis_count || 3);
+    model.value = Array.from(model.options).some(o => o.value === wanted)
+      ? wanted : model.options[0].value;
     $('hw-mode').value = r.data.mode || 'real';
     $('hw-ip').disabled = ($('hw-mode').value !== 'real');
     applyUnitList(r.data.units || [], r.data.active_unit || '');
@@ -940,6 +946,8 @@ async function loadVnaStatus() {
 }
 
 function vnaConfigBody() {
+  // Connection-only payload: sweep/power/IFBW values live in the form and are
+  // sent exclusively by the two 下发 buttons below.
   return {
     vendor_key: $('vna-vendor').value,
     interface: $('vna-interface').value,
@@ -947,17 +955,12 @@ function vnaConfigBody() {
     port: parseInt($('vna-port').value, 10),
     resource: $('vna-resource').value.trim(),
     timeout_ms: parseInt($('vna-timeout').value, 10),
-    start_hz: parseFloat($('vna-start').value),
-    stop_hz: parseFloat($('vna-stop').value),
-    points: parseInt($('vna-points').value, 10),
-    power_dbm: parseFloat($('vna-power').value),
-    ifbw_hz: parseFloat($('vna-ifbw').value),
   };
 }
 
 $('vna-connect').onclick = async () => {
   const r = await api('POST', '/api/vna/connect', vnaConfigBody());
-  showMsg($('vna-msg'), r.ok ? '已连接: ' + (r.data.idn || '') : '连接失败: ' + r.error,
+  showMsg($('vna-msg'), r.ok ? '已连接（仅通信，未修改仪器参数）: ' + (r.data.idn || '') : '连接失败: ' + r.error,
     r.ok ? 'ok' : 'error');
   loadVnaStatus();
 };
@@ -970,6 +973,17 @@ $('vna-idn').onclick = async () => {
   const r = await api('POST', '/api/vna/idn', {});
   showMsg($('vna-msg'), r.ok ? 'IDN: ' + (r.data.idn || '') : '读取失败: ' + r.error,
     r.ok ? 'info' : 'error');
+  loadVnaStatus();
+};
+$('vna-read-config').onclick = async () => {
+  const r = await api('POST', '/api/vna/read_config', {});
+  if (!r.ok) { showMsg($('vna-msg'), '读取失败: ' + r.error, 'error'); return; }
+  const cfg = r.data.config || {};
+  const fallback = cfg.fallback || [];
+  showMsg($('vna-msg'), fallback.length
+    ? '已从矢网读取当前参数（部分字段未返回，保留本机值）'
+    : '已从矢网读取当前参数（未修改仪器）',
+    fallback.length ? 'info' : 'ok');
   loadVnaStatus();
 };
 $('vna-set-sweep').onclick = async () => {

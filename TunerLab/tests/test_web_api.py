@@ -534,6 +534,72 @@ def test_studio_move_to_gamma_rejects_a_point_outside_the_chart():
         state.studio.update(previous)
 
 
+def test_studio_move_only_moves_without_measuring_or_validating():
+    """「仅移动」commands the axes but leaves the VNA and audit trail alone."""
+    previous, planner, database, target, position = _install_pick_state(0.61 + 0.21j)
+    try:
+        def forbidden_sweep():
+            pytest.fail('move-only must not sweep the VNA')
+        state.studio['vna'].measure = forbidden_sweep
+        sentinel = {'kind': 'previous verification'}
+        state.studio['validation_report'] = sentinel
+        report = handlers.studio_move_to_gamma_only(state, {
+            'gamma_re': target.real, 'gamma_im': target.imag,
+            'frequency': 5e9, 'method': 'nearest', 'tolerance': 0.05,
+            'settle_s': 0,
+        })
+        assert report['kind'] == 'smith_pick_move_only'
+        assert report['measured'] is False
+        assert report['validation_saved'] is False
+        assert np.allclose(planner.commanded, position)
+        assert np.allclose(report['position'], position)
+        assert np.allclose(report['commanded_position'], position)
+        assert report['position_error_max'] == pytest.approx(0.0)
+        assert report['prediction_kind'] == 'calibrated point'
+        # No measured Γ, no error vector, no pass/fail field: a move is not a
+        # verification and must never be presented as one.
+        for key in ('measured_gamma_real', 'vector_error', 'within_tolerance',
+                    'measured_vswr'):
+            assert key not in report
+        assert database.saved == []
+        assert state.studio['validation_report'] is sentinel
+    finally:
+        state.studio.clear()
+        state.studio.update(previous)
+
+
+def test_studio_move_only_works_without_a_connected_vna():
+    previous, planner, _, target, position = _install_pick_state(0.61 + 0.21j)
+    try:
+        state.studio['vna'] = None
+        state.studio['database'] = None
+        report = handlers.studio_move_to_gamma_only(state, {
+            'gamma_re': target.real, 'gamma_im': target.imag,
+            'frequency': 5e9, 'method': 'nearest', 'settle_s': 0})
+        assert np.allclose(planner.commanded, position)
+        assert report['measured'] is False
+    finally:
+        state.studio.clear()
+        state.studio.update(previous)
+
+
+def test_studio_move_only_rejects_a_point_outside_the_chart():
+    previous, _, _, _, _ = _install_pick_state(0.61 + 0.21j)
+    try:
+        with pytest.raises(ValueError, match='outside'):
+            handlers.studio_move_to_gamma_only(state, {
+                'gamma_re': 1.2, 'gamma_im': 0.0, 'frequency': 5e9,
+                'method': 'nearest', 'settle_s': 0})
+    finally:
+        state.studio.clear()
+        state.studio.update(previous)
+
+
+def test_studio_move_only_route_is_registered():
+    assert handlers.ROUTES['POST /api/studio/move_only'] is (
+        handlers.studio_move_to_gamma_only)
+
+
 def test_studio_verify_distinguishes_real_from_simulated_rf():
     measured = 0.61 + 0.21j
     target_z = gamma_to_z(0.6 + 0.2j)

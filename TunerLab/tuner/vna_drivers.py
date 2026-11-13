@@ -414,6 +414,25 @@ VENDOR_LABELS = {
 #: The first entry comes from the detected vendor profile; the rest are the
 #: known alternatives.  Shared with the SCPI debug tool so its report and the
 #: driver's negotiation never drift apart.
+#: Read-only SCPI queries for the settings the desktop 扫描参数 form exposes.
+#: Every candidate ends in ``?`` -- none of them changes the instrument.  The
+#: first working command per field is cached on the driver so a re-read costs
+#: one round trip instead of a full dialect search.  Vendor-pinned write
+#: headers (``_power_cmd`` / ``_ifbw_cmd``) are prepended at call time.
+CONFIG_QUERY_CANDIDATES = {
+    'start_hz': (':SENS1:FREQ:STAR?', ':SENS:FREQ:STAR?', ':FREQ:STAR?'),
+    'stop_hz': (':SENS1:FREQ:STOP?', ':SENS:FREQ:STOP?', ':FREQ:STOP?'),
+    'points': (':SENS1:SWE:POIN?', ':SENS:SWE:POIN?', ':SWE:POIN?'),
+    'power_dbm': (':SOUR1:POW:LEV?', ':SOUR1:POW?', ':SOUR:POW?'),
+    'ifbw_hz': (':SENS1:BAND?', ':SENS:BAND?', ':SENS:BWID?'),
+}
+
+#: Keys of ``CONFIG_QUERY_CANDIDATES`` that :meth:`TCPVNA.read_config` mirrors.
+CONFIG_FIELDS = tuple(CONFIG_QUERY_CANDIDATES)
+
+#: Fields the desktop/handler layer may copy back into ``state.vna['config']``.
+CONFIG_VALUE_FIELDS = ('start_hz', 'stop_hz', 'points', 'power_dbm', 'ifbw_hz')
+
 STANDARD_DEFINE_HEADERS = (
     ':CALC1:PAR:DEF',
     ':CALC1:PAR:SDEF',
@@ -515,6 +534,9 @@ class TCPVNA:
         self._cls_usable = True
         self._error_queue_state: Optional[bool] = None  # None = not probed yet
         self.dialect_warning: Optional[str] = None
+        #: Read-back cache: field -> SCPI query that worked on this instrument.
+        self._config_queries: dict[str, str] = {}
+        self._readback_supported: Optional[bool] = None
 
     # -- connection ------------------------------------------------------
     def connect(self) -> str:
@@ -525,10 +547,18 @@ class TCPVNA:
             if self.vendor_key in ('', 'auto', None):
                 self.vendor_key = detect_vendor(self.idn)
             self._apply_profile()
+            # Data-format / trace / single-sweep preparation needed to be able
+            # to read a trace back at all.  It does not touch start/stop/points,
+            # source power or IF bandwidth.
             self._preset()
-            self.set_sweep(self._sweep['start'], self._sweep['stop'], self._sweep['points'])
-            self.set_power(self._power)
-            self.set_ifbw(self._ifbw)
+            # The operator configures the sweep on the analyzer's front panel.
+            # Opening a SCPI session must leave that setup alone, so query it
+            # instead of pushing the driver defaults.  ``measure()`` needs the
+            # local frequency grid to match the trace length; read_config()
+            # rebuilds it from the instrument's own settings.  Callers that
+            # really want to configure the box (studio passes a calibration
+            # plan) call set_sweep()/set_power()/set_ifbw() afterwards.
+            self.read_config()
             errs = self.read_errors()
             notes = ([self.dialect_warning] if self.dialect_warning else []) + errs
             self.last_error = '; '.join(notes) if notes else None
@@ -775,6 +805,108 @@ class TCPVNA:
 
     def _select(self, name: str) -> None:
         self._send_optional(f":CALC1:PAR:SEL '{name}'")
+
+    # -- read-back (never writes a setting) ------------------------------
+    @staticmethod
+    def _parse_scpi_number(resp) -> Optional[float]:
+        """First numeric token of a SCPI reply (``+1.000000E+009`` …)."""
+        if not resp:
+            return None
+        text = str(resp).strip().strip('"').replace(';', ',').split(',')[0].strip()
+        if not text:
+            return None
+        text = text.split()[0]
+        try:
+            value = float(text)
+        except (TypeError, ValueError):
+            return None
+        return float(value) if np.isfinite(value) else None
+
+    def _config_query_candidates(self, field: str) -> tuple[str, ...]:
+        """Pinned / cached command first, then the known alternatives."""
+        pinned = None
+        if field == 'power_dbm':
+            pinned = f'{self._power_cmd}?'
+        elif field == 'ifbw_hz':
+            pinned = f'{self._ifbw_cmd}?'
+        ordered = (self._config_queries.get(field), pinned,
+                   *CONFIG_QUERY_CANDIDATES[field])
+        return tuple(dict.fromkeys(cmd for cmd in ordered if cmd))
+
+    def _query_config_value(self, field: str) -> tuple[Optional[float], bool]:
+        """Return ``(value, saw_any_reply)`` for one setting, read-only."""
+        saw_reply = False
+        for cmd in self._config_query_candidates(field):
+            try:
+                raw = self.transport.query(cmd)
+            except Exception:  # noqa: BLE001 - unsupported header / GPIB timeout
+                continue
+            if raw and str(raw).strip():
+                saw_reply = True
+            value = self._parse_scpi_number(raw)
+            if value is None:
+                continue
+            if field in ('start_hz', 'stop_hz', 'ifbw_hz') and value <= 0:
+                continue
+            if field == 'points' and not (1 <= value <= 1000001):
+                continue
+            self._config_queries[field] = cmd
+            return value, saw_reply
+        return None, saw_reply
+
+    def read_config(self) -> dict:
+        """Mirror the analyzer's *current* sweep settings, without writing.
+
+        Connection and 单次扫描 must leave the operator's front-panel setup
+        untouched, yet :meth:`measure` still needs a frequency grid that
+        matches the number of samples returned by the trace.  So instead of
+        pushing the driver defaults we query the settings the instrument is
+        already using and rebuild the local grid from them.
+
+        All commands sent here end in ``?``.  Fields the instrument cannot
+        report keep their cached values and are listed in ``fallback``.
+        """
+        with self.lock:
+            values: dict[str, float] = {}
+            if self._readback_supported is not False:
+                for index, field in enumerate(CONFIG_FIELDS):
+                    value, answered = self._query_config_value(field)
+                    if value is not None:
+                        values[field] = value
+                        self._readback_supported = True
+                    elif index == 0 and not answered:
+                        # No reply at all to the first query -- an old GPIB box
+                        # with no read-back.  Skipping the rest keeps a connect
+                        # from burning one full timeout per unused candidate.
+                        self._readback_supported = False
+                        break
+
+            start = float(values.get('start_hz', self._sweep['start']))
+            stop = float(values.get('stop_hz', self._sweep['stop']))
+            points = max(1, int(values.get('points', self._sweep['points'])))
+            if points > 1 and stop <= start:
+                points = 1
+            self._sweep = {'start': start,
+                           'stop': start if points == 1 else stop,
+                           'points': points}
+            self.frequencies = (np.asarray([start], dtype=float) if points == 1
+                                else np.linspace(start, stop, points))
+            if 'power_dbm' in values:
+                self._power = float(values['power_dbm'])
+            if 'ifbw_hz' in values:
+                self._ifbw = float(values['ifbw_hz'])
+
+            read = [f for f in CONFIG_FIELDS if f in values]
+            return {
+                'start_hz': self._sweep['start'],
+                'stop_hz': self._sweep['stop'],
+                'points': points,
+                'power_dbm': self._power,
+                'ifbw_hz': self._ifbw,
+                'read': read,
+                'fallback': [f for f in CONFIG_FIELDS if f not in values],
+                'source': 'instrument' if read else 'cached',
+            }
 
     # -- setters ---------------------------------------------------------
     def set_sweep(self, start_hz: float, stop_hz: float, points: int) -> None:

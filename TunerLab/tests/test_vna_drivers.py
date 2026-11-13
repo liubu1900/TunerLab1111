@@ -16,13 +16,26 @@ from tuner import vna_drivers as V
 # --------------------------------------------------------------------------- #
 # Fake SCPI socket
 # --------------------------------------------------------------------------- #
+#: SCPI read-back commands the scripted instrument knows how to answer.
+CONFIG_QUERY_MAP = {
+    ':SENS1:FREQ:STAR': 'start_hz',
+    ':SENS1:FREQ:STOP': 'stop_hz',
+    ':SENS1:SWE:POIN': 'points',
+    ':SOUR1:POW:LEV': 'power_dbm',
+    ':SENS1:BAND': 'ifbw_hz',
+}
+
+
 class FakeSocket:
     """A scripted TCPVNA transport. Replies are derived from the last command."""
 
-    def __init__(self, idn='Keysight Technologies,E5071C,SN123,A.01', n_points=11):
+    def __init__(self, idn='Keysight Technologies,E5071C,SN123,A.01', n_points=11,
+                 config=None):
         self.idn = idn
         self.n_points = n_points
+        self.config = config or {}
         self.sent = []
+        self.connect_commands = []
         self.last_cmd = ''
         self._closed = False
 
@@ -56,6 +69,9 @@ class FakeSocket:
                 return b'+0,"No error"\n'
             if cmd.endswith('*OPC?'):
                 return b'1\n'
+            key = CONFIG_QUERY_MAP.get(cmd.rstrip('?'))
+            if key is not None and key in self.config:
+                return (str(self.config[key]) + '\n').encode('ascii')
         return b''
 
     # -- helpers for assertions ------------------------------------------
@@ -71,6 +87,9 @@ def make_vna(idn='Keysight Technologies,E5071C,SN123,A.01', n_points=11, **kw):
     with mock.patch.object(V.socket, 'create_connection', return_value=fake):
         vna = V.create_vna(kw.get('vendor_key', 'auto'), '192.168.0.99', 5025, 5.0)
         vna.connect()
+        # Snapshot before the test helper pushes its own sweep: assertions about
+        # what *connect* writes must not see the helper's set_sweep().
+        fake.connect_commands = list(fake.sent)
         # align the analyzer sweep to the fake's point count so fetch matches
         vna.set_sweep(1e9, 2e9, n_points)
         vna._fake = fake
@@ -101,7 +120,13 @@ def test_available_vendors():
 # --------------------------------------------------------------------------- #
 # Connection + setup
 # --------------------------------------------------------------------------- #
-def test_connect_parses_idn_and_sets_defaults():
+SETTING_PREFIXES = (':SENS1:FREQ:STAR', ':SENS1:FREQ:STOP', ':SENS1:SWE:POIN',
+                    ':SOUR1:POW', ':SENS1:BAND', ':SENS:FREQ', ':SENS:BAND',
+                    ':SOUR:POW')
+
+
+def test_connect_parses_idn_and_leaves_instrument_settings_alone():
+    """0.5.13.3: opening a session is communication only, never a sweep write."""
     vna, fake = make_vna()
     assert vna.connected
     assert 'E5071C' in vna.idn
@@ -109,10 +134,67 @@ def test_connect_parses_idn_and_sets_defaults():
     # measurements defined for all four S-parameters
     assert fake.sent_once(":CALC1:PAR:DEF 'S11'") == 1
     assert fake.sent_once(":CALC1:PAR:DEF 'S22'") == 1
-    # sweep / power / ifbw applied
-    assert any(c.startswith(':SENS1:FREQ:STAR') for c in fake.sent)
-    assert any(c.startswith(':SOUR1:POW:LEV') for c in fake.sent)
-    assert any(c.startswith(':SENS1:BAND') for c in fake.sent)
+    # No start/stop/points/power/IFBW command without a trailing '?'.
+    writes = [c for c in fake.connect_commands
+              if c.startswith(SETTING_PREFIXES) and not c.endswith('?')]
+    assert writes == [], writes
+    # The driver must instead read the analyzer's own settings back.
+    assert any(c == ':SENS1:FREQ:STAR?' for c in fake.connect_commands)
+
+
+def test_read_config_queries_instrument_without_writing():
+    """The 从矢网读取当前参数 path is read-only and rebuilds the local grid."""
+    config = {'start_hz': 2e9, 'stop_hz': 8e9, 'points': 201,
+              'power_dbm': -5.0, 'ifbw_hz': 10000.0}
+    fake = FakeSocket(config=config)
+    with mock.patch.object(V.socket, 'create_connection', return_value=fake):
+        vna = V.create_vna('auto', '192.168.0.99', 5025, 5.0)
+        vna.connect()
+    live = vna.read_config()
+    assert live['start_hz'] == pytest.approx(2e9)
+    assert live['stop_hz'] == pytest.approx(8e9)
+    assert live['points'] == 201
+    assert live['power_dbm'] == pytest.approx(-5.0)
+    assert live['ifbw_hz'] == pytest.approx(10000.0)
+    assert live['source'] == 'instrument'
+    assert live['fallback'] == []
+    assert vna.frequencies.size == 201
+    assert vna.frequencies[0] == pytest.approx(2e9)
+    assert vna.frequencies[-1] == pytest.approx(8e9)
+    assert vna.get_config()['power_dbm'] == pytest.approx(-5.0)
+
+    # A second read uses the cached working query for each field: 5 commands,
+    # every one of them a query (nothing may be written to the instrument).
+    before = len(fake.sent)
+    vna.read_config()
+    followup = fake.sent[before:]
+    assert len(followup) == 5
+    assert all(c.endswith('?') for c in followup), followup
+
+
+def test_read_config_falls_back_to_cached_values_without_raising():
+    """An old GPIB box that cannot answer read-back must still connect/scan."""
+    vna, fake = make_vna()
+    live = vna.read_config()
+    assert live['source'] == 'cached'
+    assert set(live['fallback']) == set(V.CONFIG_FIELDS)
+    assert vna.frequencies.size == 11  # grid set by the test helper
+    # No unbounded dialect search on a silent instrument.
+    first_read = [c for c in fake.connect_commands if 'FREQ:STAR' in c]
+    assert len(first_read) <= 3
+
+
+def test_set_sweep_still_writes_on_explicit_request():
+    """下发扫描参数 remains the one path that changes instrument settings."""
+    vna, fake = make_vna()
+    sent_before = len(fake.sent)
+    vna.set_sweep(3e9, 4e9, 51)
+    vna.set_power(-12.0)
+    vna.set_ifbw(500.0)
+    new = fake.sent[sent_before:]
+    assert any(c.startswith(':SENS1:FREQ:STAR 3000000000') for c in new)
+    assert any(c.startswith(':SOUR1:POW:LEV -12') for c in new)
+    assert any(c.startswith(':SENS1:BAND 500') for c in new)
 
 
 def test_rsp_uses_sdef_and_sdat():
