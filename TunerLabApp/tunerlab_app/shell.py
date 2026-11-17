@@ -41,6 +41,7 @@ from .pages_motion import SafeAxisMotionPage
 from .pages_audit import StudioAuditPage
 from .pages_p1 import StudioLibraryBrowserPage
 from .pages_pattern import StudioPatternPage
+from .pages_pointops import GammaPlanDerivePage, VectorRepeatabilityPage
 from .pages_studio import (
     StudioDatabasePage, StudioOverviewPage, StudioRunPage, StudioSetupPage,
 )
@@ -70,7 +71,8 @@ BASE_STYLESHEET = STYLESHEET + SHELL_QSS
 #: ``studio-pattern`` carries a chart, a generator panel and a resolution
 #: table; at 1140x720 they do not fit side by side either.
 _SCROLLED_PAGES = frozenset({'hw-motion', 'studio-setup', 'studio-smith',
-                             'studio-pattern', 'vna-debug'})
+                             'studio-pattern', 'vna-debug',
+                             'studio-vector-repeat', 'studio-plan-derive'})
 
 #: Navigation tree: (group title, [(key, label, page factory), ...]).
 #: Grouped per TunerLab_0.3.9 设计规格: 准备 / 数据与目标 / 验证与追溯 / 系统.
@@ -84,11 +86,13 @@ NAVIGATION = (
         ('studio-db', '校准库', lambda w: StudioDatabasePage(w.state)),
         ('studio-browser', '库浏览器', lambda w: StudioLibraryBrowserPage(w.state)),
         ('studio-pattern', '目标图案编辑器', lambda w: StudioPatternPage(w.state)),
+        ('studio-plan-derive', '按 Γ 分布派生新库', lambda w: GammaPlanDerivePage(w.state)),
     )),
     ('验证与追溯', (
         ('studio-smith', 'Smith 图', lambda w: StudioSmithPage(w.state)),
         ('studio-tune', '阻抗调谐与验证', lambda w: StudioTuningPage(w.state)),
         ('studio-validation', '验证报告', lambda w: StudioValidationPage(w.state)),
+        ('studio-vector-repeat', '矢量重复性校验', lambda w: VectorRepeatabilityPage(w.state)),
         ('studio-audit', '报告与审计', lambda w: StudioAuditPage(w.state)),
     )),
     ('系统', (

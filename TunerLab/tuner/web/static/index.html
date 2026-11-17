@@ -496,6 +496,43 @@
           <h2>报告</h2>
           <pre id="st-val-report" class="meta"></pre>
         </div>
+
+        <!-- 指定点位矢量重复性校验（20log|S11^m − S11^c|） -->
+        <div class="card">
+          <h2>指定点位 · 矢量重复性校验</h2>
+          <p>从库里勾选若干已测点位，现场逐点复测一次 S11，与库中保存的第一次数据比较：
+            <b>Repeatability = 20·log₁₀|S11<sup>m</sup> − S11<sup>c</sup>| (dB)</b>。
+            S11<sup>c</sup> 为库内参考值，S11<sup>m</sup> 为本次实测值。此操作会移动机械并触发矢网。</p>
+          <div class="btn-row">
+            <button id="vr-load" class="btn">载入库点位</button>
+            <button id="vr-select-all" class="btn">全选</button>
+            <button id="vr-clear" class="btn">清空</button>
+          </div>
+          <div class="form-row">
+            <label>判定阈值 (dB)</label>
+            <input id="vr-tol" class="num" type="number" step="0.5" value="-30" />
+            <label>已选 <b id="vr-count" class="num">0</b> 点</label>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+            <div style="flex:1;min-width:260px;max-height:300px;overflow:auto">
+              <table id="vr-points">
+                <thead><tr><th>选</th><th>#</th><th>机械位置</th><th>|Γ|</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div>
+              <canvas id="vr-smith" width="300" height="300"></canvas>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button id="vr-run" class="btn primary">开始矢量重复性测试</button>
+          </div>
+          <div id="vr-msg" class="scale-msg"></div>
+          <table id="vr-result">
+            <thead><tr><th>#</th><th>机械位置</th><th>最差 Repeatability (dB)</th><th>判定</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
         <div class="card">
           <h2>插值验证闭环</h2>
           <p>把调谐器移到一组<b>插值得到</b>的阻抗点（网格单元中心，而不是标定点本身），
@@ -622,6 +659,42 @@
             <button id="p1-op-run" class="btn primary">执行</button>
           </div>
           <pre id="p1-op-result" class="meta"></pre>
+        </div>
+
+        <!-- 按 Γ 分布派生新库（等Γ圆分层 / Smith 均匀） -->
+        <div class="card">
+          <h2>按 Γ 分布派生新库（真值重采样，源库只读）</h2>
+          <p>按 <b>等 Γ 圆分层</b> 或 <b>Smith 图均匀布点</b> 的目标 Γ，从当前库中挑出 Γ 最接近的
+            <b>已测真值点</b>，用其原坐标与原 S 参数重组成新库。结果全部为实测真值，<b>无需重新测试</b>。</p>
+          <div class="form-row">
+            <label>布点方式</label>
+            <select id="gd-plan">
+              <option value="gamma_rings">等 Γ 圆分层（冷启动）</option>
+              <option value="smith">Smith 图均匀布点</option>
+            </select>
+            <label>密度</label>
+            <select id="gd-density">
+              <option value="low">低 · 95 点</option>
+              <option value="medium" selected>中 · 181 点</option>
+              <option value="high">高 · 361 点</option>
+            </select>
+            <label>|Γ| 最小</label>
+            <input id="gd-rmin" class="num" type="number" step="0.05" value="0" />
+            <label>|Γ| 最大</label>
+            <input id="gd-rmax" class="num" type="number" step="0.05" value="0.95" />
+            <label>频率 (GHz, 留空取中频)</label>
+            <input id="gd-freq" class="num" type="number" step="0.1" value="" />
+            <label>输出路径</label>
+            <input id="gd-path" type="text" placeholder="派生库 .h5" />
+          </div>
+          <div class="btn-row">
+            <button id="gd-preview" class="btn">预览目标 Γ</button>
+            <button id="gd-run" class="btn primary">派生新库</button>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+            <canvas id="gd-smith" width="300" height="300"></canvas>
+            <pre id="gd-result" class="meta" style="flex:1;min-width:260px"></pre>
+          </div>
         </div>
 
         <!-- F-20 repeatability -->

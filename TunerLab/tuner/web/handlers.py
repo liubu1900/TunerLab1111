@@ -70,6 +70,8 @@ from ..library_browser import scan_libraries, compare_libraries
 from ..progress_cloud import progress_cloud
 from ..repeatability import build_repeatability_report
 from ..repeatability import auto_repeatability_measurements
+from ..repeatability import vector_repeatability_report
+from ..library_plan_derive import derive_by_gamma_plan, plan_target_gamma
 from ..reference_shift import line_s_parameters, reference_shift_report, s2p_at_frequencies
 from ..audit import audit_report
 from ..patterns import delete_pattern, list_patterns, save_pattern
@@ -2623,6 +2625,200 @@ def studio_repeatability_auto(state, body):
             'a_index': a_index, 'b_index': b_index}
 
 
+def studio_vector_repeatability(state, body):
+    """Vector S11 repeatability of operator-selected points against the library.
+
+    For each selected point the freshly measured S11 (``S11^m``) is compared
+    with the value already stored in the loaded library (``S11^c``, the
+    "in-memory" reference from the first measurement) using::
+
+        Repeatability = 20 * log10 | S11^m - S11^c |   [dB]
+
+    One measurement per point; the library value is the second half of the
+    comparison.  The plan is chosen by ticking points in the UI and passing
+    their indices in ``indices``.  This handler MOVES the machine and sweeps
+    the VNA, so the caller must confirm with the operator first.
+    """
+    s = state.studio
+    if s['calibration_state'] in _BUSY_STATES:
+        raise RuntimeError(
+            f"calibration is {s['calibration_state']}; wait for it to finish "
+            f"or cancel before starting a repeatability test")
+    if s['data'] is None or s['database'] is None:
+        raise RuntimeError('load a calibration database first')
+    if s['vna'] is None:
+        raise RuntimeError('矢网未初始化：请先在「校准设置」初始化硬件或连接矢网')
+
+    data = s['data']
+    valid = np.flatnonzero(np.asarray(data['valid'], bool))
+    if valid.size == 0:
+        raise ValueError('library has no valid measured points')
+    raw_indices = body.get('indices')
+    if not isinstance(raw_indices, (list, tuple)) or len(raw_indices) == 0:
+        raise ValueError('indices is required: select at least one point')
+    indices = []
+    for value in raw_indices:
+        index = int(value)
+        if not (0 <= index < len(data['valid'])) or not bool(data['valid'][index]):
+            raise ValueError(f'point {index} is not a valid measured point')
+        indices.append(index)
+
+    tolerance_db = body.get('tolerance_db')
+    tolerance_db = float(tolerance_db) if tolerance_db is not None else None
+    settle = float(body.get('settle_s', 0.15))
+    positions = np.asarray(data['positions'], float)
+    freqs_lib = np.asarray(data['frequencies'], float)
+    s_lib = np.asarray(data['s'], complex)  # (P, F, 2, 2); S11 = [:, :, 0, 0]
+
+    # Guard frequency-grid agreement before any SCPI / motion.
+    vna_freqs = np.asarray(getattr(s['vna'], 'frequencies', None), float)
+    if vna_freqs.size and not np.array_equal(vna_freqs, freqs_lib):
+        raise ValueError(
+            '矢网当前频点与校准库不一致，请在「矢网控制」恢复建库时的扫频设置')
+
+    def work():
+        with state.studio_lock:
+            state.studio['calibration_state'] = 'validating'
+        try:
+            planner, motion = _ensure_library_motion(state)
+            rows = []
+            for index in indices:
+                commanded = np.asarray(positions[index], float)
+                planner.move_to(commanded)
+                if settle > 0:
+                    time.sleep(min(settle, 5.0))
+                actual = np.asarray(motion.read_position(), float).ravel()
+                measurement = s['vna'].measure()
+                m_s = np.asarray(measurement.s, complex)
+                if m_s.shape[:1] != freqs_lib.shape:
+                    raise ValueError('实测频点数与校准库不一致')
+                s11_measured = m_s[:, 0, 0]
+                s11_memory = s_lib[index, :, 0, 0]
+                rows.append(vector_repeatability_report(
+                    freqs_lib, s11_measured, s11_memory,
+                    position=actual.tolist(), point_index=index,
+                    label=f'#{index}', tolerance_db=tolerance_db))
+            worst = max((r['worst_db'] for r in rows), default=float('-inf'))
+            report = {
+                'kind': 'vector_repeatability_memory',
+                'formula': '20*log10|S11_measured - S11_memory|',
+                'n': len(rows),
+                'frequency_hz': [float(f) for f in freqs_lib],
+                'tolerance_db': tolerance_db,
+                'worst_db': worst,
+                'mean_of_worst_db': float(np.mean([r['worst_db'] for r in rows])),
+                'all_passed': (all(r['passed'] for r in rows)
+                               if tolerance_db is not None else None),
+                'rows': rows,
+            }
+            if s['database'] is not None:
+                s['database'].save_validation(report)
+            with state.studio_lock:
+                state.studio['validation_report'] = report
+                state.studio['calibration_state'] = 'validated'
+        except Exception as exc:  # noqa: BLE001 - worker must not die silently
+            with state.studio_lock:
+                state.studio['calibration_state'] = 'failed'
+                state.studio['calibration_error'] = f'{type(exc).__name__}: {exc}'
+
+    thread = threading.Thread(target=work, daemon=True)
+    with state.studio_lock:
+        if s['calibration_thread'] is not None and s['calibration_thread'].is_alive():
+            raise RuntimeError('an operation is already running')
+        s['calibration_thread'] = thread
+    thread.start()
+    return {'state': 'validating', 'indices': indices, 'tolerance_db': tolerance_db}
+
+
+def studio_vector_repeatability_preview(state, body):
+    """Pure preview of selected points (no motion): S11^c, |Γ| and position."""
+    s = state.studio
+    if s['data'] is None:
+        raise RuntimeError('load a calibration database first')
+    data = s['data']
+    indices = [int(v) for v in (body.get('indices') or [])]
+    if not indices:
+        raise ValueError('indices is required')
+    positions = np.asarray(data['positions'], float)
+    s_lib = np.asarray(data['s'], complex)
+    z0 = float(body.get('z0', 50.0))
+    rows = []
+    for index in indices:
+        if not (0 <= index < len(data['valid'])):
+            raise ValueError(f'point index {index} out of range')
+        gamma = RF.dut_gamma(s_lib[index])[0]
+        rows.append({
+            'index': index,
+            'valid': bool(data['valid'][index]),
+            'position': [float(v) for v in positions[index]],
+            'gamma_re': float(gamma.real),
+            'gamma_im': float(gamma.imag),
+            'gamma_mag': float(abs(gamma)),
+        })
+    return {'points': rows, 'count': len(rows)}
+
+
+def studio_library_points(state, body):
+    """List measured points for the point-picker (index, position, |Γ|)."""
+    s = state.studio
+    if s['data'] is None:
+        raise RuntimeError('load a calibration database first')
+    data = s['data']
+    valid = np.flatnonzero(np.asarray(data['valid'], bool))
+    positions = np.asarray(data['positions'], float)
+    s_lib = np.asarray(data['s'], complex)
+    gammas = RF.dut_gamma(s_lib)  # (P, F)
+    mid = gammas.shape[1] // 2 if gammas.ndim == 2 and gammas.shape[1] else 0
+    points = []
+    for index in valid:
+        g = gammas[index, mid] if gammas.ndim == 2 else gammas[index]
+        points.append({
+            'index': int(index),
+            'position': [float(v) for v in positions[index]],
+            'gamma_re': float(np.real(g)),
+            'gamma_im': float(np.imag(g)),
+            'gamma_mag': float(abs(g)),
+        })
+    return {'points': points, 'count': len(points)}
+
+
+def studio_library_plan_derive(state, body):
+    """Derive a measured-truth library following an equal-|Γ| / Smith plan."""
+    db = state.studio.get('database')
+    if db is None or not db.path.is_file():
+        raise RuntimeError('no calibration database loaded')
+    out = body.get('path')
+    if not out:
+        raise ValueError('output path is required')
+    plan = str(body.get('plan', 'gamma_rings')).lower()
+    if plan not in ('gamma_rings', 'smith'):
+        raise ValueError('plan must be gamma_rings or smith')
+    return derive_by_gamma_plan(
+        db, out, plan=plan,
+        density=str(body.get('density', 'medium')),
+        r_min=float(body.get('r_min', 0.0)),
+        r_max=float(body.get('r_max', 0.95)),
+        method=str(body.get('method', 'sunflower')),
+        enhanced_center=bool(body.get('enhanced_center', False)),
+        enhanced_50ohm=bool(body.get('enhanced_50ohm', False)),
+        frequency_hz=body.get('frequency_hz'),
+        dedupe=bool(body.get('dedupe', False)))
+
+
+def studio_plan_targets(state, body):
+    """Pure preview of target Γ for a plan (no database needed)."""
+    count = int(body.get('count') or density_count(str(body.get('density', 'medium'))))
+    targets = plan_target_gamma(
+        str(body.get('plan', 'gamma_rings')), count=count,
+        r_min=float(body.get('r_min', 0.0)),
+        r_max=float(body.get('r_max', 0.95)),
+        method=str(body.get('method', 'sunflower')),
+        enhanced_center=bool(body.get('enhanced_center', False)),
+        enhanced_50ohm=bool(body.get('enhanced_50ohm', False)))
+    return {'targets': [[float(t.real), float(t.imag)] for t in targets],
+            'count': len(targets)}
+
+
 def studio_reference_shift(state, body):
     """P2: refer the loaded library to another reference plane.
 
@@ -2944,6 +3140,13 @@ ROUTES = {
     'POST /api/studio/library/compare': studio_library_compare,
     'POST /api/studio/repeatability': studio_repeatability,
     'POST /api/studio/repeatability_auto': studio_repeatability_auto,
+    # vector repeatability vs library memory + gamma-plan library derivation
+    'GET /api/studio/library/points': studio_library_points,
+    'POST /api/studio/repeatability/vector/preview': studio_vector_repeatability_preview,
+    'POST /api/studio/repeatability/vector': studio_vector_repeatability,
+    'GET /api/studio/plan/targets': studio_plan_targets,
+    'POST /api/studio/plan/targets': studio_plan_targets,
+    'POST /api/studio/library/plan_derive': studio_library_plan_derive,
     'POST /api/studio/reference_shift': studio_reference_shift,
     'GET /api/studio/patterns': studio_patterns_list,
     'POST /api/studio/patterns': studio_patterns_save,

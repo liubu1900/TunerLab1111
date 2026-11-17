@@ -33,7 +33,7 @@ function showPage(page) {
   if (page === 'hw-params') loadHwParams();
   if (page === 'studio-dashboard') refreshStudioDash();
   if (page === 'studio-smith') drawSmith();
-  if (page === 'studio-validation') loadValidation();
+  if (page === 'studio-validation') { loadValidation(); vrLoadPoints(); }
   if (page === 'hw-motion') startHwPoll(); else stopHwPoll();
   if (page === 'studio-run') startStudioPoll(); else stopStudioPoll();
   if (page === 'vna') loadVnaStatus();
@@ -1493,6 +1493,151 @@ $('vna-probe-copy').onclick = async () => {
   } catch (e) {
     showMsg($('vna-msg'), '复制失败，请手动选中文本: ' + e.message, 'error');
   }
+};
+
+/* ------------------------- Smith scatter helper (vector repeatability / derive) */
+function drawGammaScatter(canvasId, series) {
+  const canvas = $(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2, rad = Math.min(W, H) / 2 - 18;
+  const xy = (g) => ({ x: cx + rad * g.re, y: cy - rad * g.im });
+  ctx.strokeStyle = '#35506b'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 2 * Math.PI); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - rad, cy); ctx.lineTo(cx + rad, cy); ctx.stroke();
+  (series || []).forEach((s) => {
+    ctx.fillStyle = s.color || '#42c5b7';
+    (s.points || []).forEach((g) => {
+      const p = xy(g);
+      if (s.r) { ctx.beginPath(); ctx.arc(p.x, p.y, s.r, 0, 2 * Math.PI); ctx.fill(); }
+      else ctx.fillRect(p.x - 1.4, p.y - 1.4, 2.8, 2.8);
+    });
+  });
+}
+
+/* ------------------------- 指定点位矢量重复性校验 ---------------------- */
+let vrPoints = [];
+let vrSelected = new Set();
+
+async function vrLoadPoints() {
+  const r = await api('GET', '/api/studio/library/points', {});
+  const tb = $('vr-points').querySelector('tbody');
+  tb.innerHTML = '';
+  vrPoints = (r.ok && r.data) ? r.data.points : [];
+  vrSelected.clear();
+  vrPoints.forEach((p) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><input type="checkbox" data-idx="${p.index}"></td>`
+      + `<td class="num">${p.index}</td>`
+      + `<td class="num">[${p.position.map((v) => v.toFixed(3)).join(', ')}]</td>`
+      + `<td class="num">${p.gamma_mag.toFixed(4)}</td>`;
+    const cb = tr.querySelector('input');
+    cb.addEventListener('change', () => {
+      if (cb.checked) vrSelected.add(p.index); else vrSelected.delete(p.index);
+      vrUpdateCount(); vrUpdateSmith();
+    });
+    tb.appendChild(tr);
+  });
+  vrUpdateCount(); vrUpdateSmith();
+  if (!r.ok) showMsg($('vr-msg'), '载入失败: ' + r.error, 'error');
+}
+
+function vrUpdateCount() { $('vr-count').textContent = String(vrSelected.size); }
+
+function vrUpdateSmith() {
+  const all = vrPoints.map((p) => ({ re: p.gamma_re, im: p.gamma_im }));
+  const sel = vrPoints.filter((p) => vrSelected.has(p.index))
+    .map((p) => ({ re: p.gamma_re, im: p.gamma_im }));
+  drawGammaScatter('vr-smith', [
+    { points: all, color: '#9fb6cc' },
+    { points: sel, color: '#e2483d', r: 4 },
+  ]);
+}
+
+$('vr-load').onclick = vrLoadPoints;
+$('vr-select-all').onclick = () => {
+  $('vr-points').querySelectorAll('input').forEach((cb) => { if (!cb.checked) cb.click(); });
+};
+$('vr-clear').onclick = () => {
+  $('vr-points').querySelectorAll('input').forEach((cb) => { if (cb.checked) cb.click(); });
+};
+
+$('vr-run').onclick = async () => {
+  const indices = Array.from(vrSelected);
+  if (!indices.length) { showMsg($('vr-msg'), '请先勾选至少一个点位', 'error'); return; }
+  const tol = parseFloat($('vr-tol').value);
+  const r = await api('POST', '/api/studio/repeatability/vector',
+    { indices, tolerance_db: isFinite(tol) ? tol : null });
+  if (!r.ok) { showMsg($('vr-msg'), '启动失败: ' + r.error, 'error'); return; }
+  showMsg($('vr-msg'), '测试中：会逐点移动机械并触发矢网，请稍候…', 'info');
+  const timer = setInterval(async () => {
+    const st = await api('GET', '/api/studio/overview', {});
+    if (!st.ok) return;
+    if (st.data.calibration_state === 'validated' || st.data.calibration_state === 'failed') {
+      clearInterval(timer);
+      const rep = await api('GET', '/api/studio/validation_report', {});
+      const tb = $('vr-result').querySelector('tbody');
+      tb.innerHTML = '';
+      if (rep.ok && rep.data && rep.data.kind === 'vector_repeatability_memory') {
+        rep.data.rows.forEach((row) => {
+          const tr = document.createElement('tr');
+          const pass = row.passed;
+          const badge = (pass === undefined) ? '—'
+            : (pass ? '<span style="color:#047857">通过</span>'
+                    : '<span style="color:#b91c1c">超差</span>');
+          tr.innerHTML = `<td class="num">${row.point_index}</td>`
+            + `<td class="num">[${(row.position || []).map((v) => v.toFixed(3)).join(', ')}]</td>`
+            + `<td class="num">${row.worst_db.toFixed(2)}</td>`
+            + `<td>${badge}</td>`;
+          tb.appendChild(tr);
+        });
+        showMsg($('vr-msg'),
+          `完成 · ${rep.data.n} 点 · 最差 ${rep.data.worst_db.toFixed(2)} dB`, 'ok');
+      } else {
+        showMsg($('vr-msg'), '测试结束（未产生矢量报告，可能被其它操作打断）', 'warn');
+      }
+    }
+  }, 500);
+};
+
+/* ------------------------- 按 Γ 分布派生新库 --------------------------- */
+async function gdPreview() {
+  const plan = $('gd-plan').value;
+  const density = $('gd-density').value;
+  const body = {
+    plan, density,
+    r_min: parseFloat($('gd-rmin').value),
+    r_max: parseFloat($('gd-rmax').value),
+  };
+  const r = await api('POST', '/api/studio/plan/targets', body);
+  if (!r.ok) { $('gd-result').textContent = '预览失败: ' + r.error; return; }
+  drawGammaScatter('gd-smith', [{ points: r.data.targets, color: '#2b7fd4' }]);
+  $('gd-result').textContent = `目标 Γ 点数: ${r.data.count}\n${JSON.stringify(body, null, 2)}`;
+}
+$('gd-preview').onclick = gdPreview;
+
+$('gd-run').onclick = async () => {
+  const freqRaw = $('gd-freq').value.trim();
+  const body = {
+    path: $('gd-path').value.trim(),
+    plan: $('gd-plan').value,
+    density: $('gd-density').value,
+    r_min: parseFloat($('gd-rmin').value),
+    r_max: parseFloat($('gd-rmax').value),
+  };
+  if (freqRaw !== '') body.frequency_hz = parseFloat(freqRaw) * 1e9;
+  if (!body.path) { $('gd-result').textContent = '请先填写输出路径'; return; }
+  $('gd-result').textContent = '派生中…';
+  const r = await api('POST', '/api/studio/library/plan_derive', body);
+  if (!r.ok) { $('gd-result').textContent = '派生失败: ' + r.error; return; }
+  const d = r.data;
+  $('gd-result').textContent =
+    `完成 ✓\n路径: ${d.path}\n点数: ${d.points}（全部实测真值）\n`
+    + `布点: ${d.plan} · ${d.density}\n频率: ${(d.frequency_hz / 1e9).toFixed(4)} GHz\n`
+    + `父版本: ${d.parent_version}\n最近邻 Γ 距离: 最大 ${d.max_nearest_distance.toFixed(4)}`
+    + ` / 平均 ${d.mean_nearest_distance.toFixed(4)}\n说明: 复用源库真值，未重新测试。`;
 };
 
 /* ------------------------------------------------------------- bootstrap */

@@ -23,7 +23,79 @@ import numpy as np
 from .rf import RFNetworkEngine as RF
 
 __all__ = ['analyze_repeatability', 'auto_repeatability_measurements',
-           'build_repeatability_report']
+           'build_repeatability_report', 'vector_repeatability_memory',
+           'vector_repeatability_report']
+
+
+def vector_repeatability_memory(measured_s11, memory_s11, *, eps=1e-30):
+    """Vector S11 repeatability against a stored (in-memory) reference.
+
+    Implements the instrument's definition::
+
+        S11 Repeatability = 20 * log10 | S11^m - S11^c |
+
+    where ``S11^m`` is the freshly *measured* complex S11 and ``S11^c`` is the
+    value held *in memory* (the value already stored in the calibration
+    library for this point) — hence "memory" in the name.  The difference is
+    taken as a **complex vector difference** first, then its magnitude is
+    expressed in dB.  ``measured_s11`` / ``memory_s11`` may be scalars or
+    equal-length arrays (one complex S11 per frequency point).
+
+    A zero difference yields ``-inf`` dB (perfect repetition); ``eps`` clamps
+    the argument so the result stays finite and JSON-serialisable.
+
+    Returns a dict with per-frequency ``delta`` / ``repeatability_db`` arrays
+    and summary statistics (worst = largest dB, i.e. the least repeatable).
+    """
+    m = np.asarray(measured_s11, dtype=complex)
+    c = np.asarray(memory_s11, dtype=complex)
+    if m.shape != c.shape:
+        raise ValueError('measured_s11 and memory_s11 must have the same shape')
+    delta = np.abs(m - c)
+    clamped = np.maximum(delta, float(eps))
+    db = 20.0 * np.log10(clamped)
+    db_scalar = float(db) if db.ndim == 0 else None
+    return {
+        'delta': delta,
+        'repeatability_db': db,
+        'worst_db': float(np.max(db)),
+        'best_db': float(np.min(db)),
+        'mean_db': float(np.mean(db)),
+        'count': int(delta.size),
+        'scalar_db': db_scalar,
+    }
+
+
+def vector_repeatability_report(frequency_hz, measured_s11, memory_s11, *,
+                                position=None, point_index=None, label=None,
+                                tolerance_db=None):
+    """Build one JSON-serialisable per-point repeatability record.
+
+    ``tolerance_db`` is an optional acceptance threshold: a point passes when
+    its *worst* (largest) repeatability figure is still below the threshold.
+    """
+    stats = vector_repeatability_memory(measured_s11, memory_s11)
+    freqs = np.atleast_1d(np.asarray(frequency_hz, float))
+    db = np.atleast_1d(stats['repeatability_db'])
+    delta = np.atleast_1d(stats['delta'])
+    row = {
+        'point_index': (int(point_index) if point_index is not None else None),
+        'label': str(label) if label is not None else None,
+        'position': ([float(v) for v in position] if position is not None else None),
+        'frequencies_hz': [float(v) for v in freqs],
+        's11_memory': [[float(np.real(v)), float(np.imag(v))]
+                       for v in np.atleast_1d(memory_s11)],
+        's11_measured': [[float(np.real(v)), float(np.imag(v))]
+                         for v in np.atleast_1d(measured_s11)],
+        'delta': [float(v) for v in delta],
+        'repeatability_db': [float(v) for v in db],
+        'worst_db': stats['worst_db'],
+        'mean_db': stats['mean_db'],
+    }
+    if tolerance_db is not None:
+        row['tolerance_db'] = float(tolerance_db)
+        row['passed'] = bool(stats['worst_db'] <= float(tolerance_db))
+    return row
 def _as_gamma(record: dict) -> complex:
     """The reflection coefficient of one measurement record.
 
