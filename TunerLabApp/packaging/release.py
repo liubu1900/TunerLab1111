@@ -199,7 +199,7 @@ def build(version: str) -> None:
     """PyInstaller build + runtime fix-up + frozen-binary smoke test."""
     python = sys.executable
     run('PyInstaller 构建', [python, '-m', 'PyInstaller', str(SPEC),
-                             '--noconfirm', '--clean'],
+                             '--noconfirm'],
         cwd=APP_ROOT, timeout=1800)
     if FAILS:
         return
