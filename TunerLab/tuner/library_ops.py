@@ -203,11 +203,14 @@ def reverse_probe(src_db, new_path, axis, reason='reverse probe',
     return _derive(src_db, new_path, valid, reason, transform=transform)
 
 
-def split_by_frequency(src_db, out_dir, reason='split by frequency') -> list[dict]:
+def split_by_frequency(src_db, out_dir, reason='split by frequency',
+                       freq_index=None) -> list[dict]:
     """One new single-frequency library per frequency index.
 
     Multi-frequency libraries only; for a single-frequency source a single
-    derived library is returned.  Returns a list of per-frequency summaries.
+    derived library is returned.  Pass ``freq_index`` to export just that one
+    frequency instead of the whole band -- on wide-band libraries splitting
+    everything at once produces a flood of files.  Returns a list of summaries.
     """
     src_db = CalibrationDatabase(src_db.path)
     data = src_db.load()
@@ -219,7 +222,14 @@ def split_by_frequency(src_db, out_dir, reason='split by frequency') -> list[dic
     out = []
     d = Path(out_dir)
     d.mkdir(parents=True, exist_ok=True)
-    for j, f in enumerate(freqs):
+    indices = range(len(freqs))
+    if freq_index is not None:
+        j = int(freq_index)
+        if not 0 <= j < len(freqs):
+            raise ValueError(f'frequency index {j} out of range (0..{len(freqs) - 1})')
+        indices = [j]
+    for j in indices:
+        f = freqs[j]
         positions = np.asarray(data['positions'], float)
         actual = np.asarray(data.get('actual', data['positions']), float)
         target = CalibrationDatabase(d / f'freq_{j:03d}_{int(f):d}.h5')

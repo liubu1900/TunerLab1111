@@ -181,10 +181,14 @@ class StudioSetupPage(_StudioPage):
         vna_grid.addWidget(self.vna_resource_label, 4, 0)
         vna_grid.addWidget(self.vna_resource, 4, 1)
         vna_card.body.addLayout(vna_grid)
+        # Reuse the connection already configured on the "矢网控制" page instead
+        # of asking the operator to retype it.  ``state.vna['config']`` is the
+        # single source of truth for the live instrument; the wizard fields are
+        # prefilled from it and remain editable for the rare one-off override.
+        self._prefill_vna_from_state()
         vna_card.body.addWidget(hint_label(
-            '真实矢网可选 TCP/IP（默认 192.168.2.111:5025）或 GPIB（默认 '
-            'GPIB0::17::INSTR，需 Keysight IO Libraries Suite）；'
-            '用模拟矢网可在无仪器时完整走一遍流程。'))
+            '真实矢网的连接参数已自动取用「矢网控制」页当前设置，无需手动输入；'
+            '如需临时改用其他仪器可直接修改。用模拟矢网可在无仪器时走完整流程。'))
         step.add_card(vna_card)
         self.wizard.add_step(step)
 
@@ -689,6 +693,50 @@ class StudioSetupPage(_StudioPage):
 
         self.run(work, self._created, title='建立校准库失败', description='studio setup')
 
+    def _prefill_vna_from_state(self) -> None:
+        """Seed the wizard's VNA connection fields from the live VNA config.
+
+        The "矢网控制" page owns the instrument connection; its settings live
+        in ``state.vna['config']``.  Copy host / port / GPIB resource / interface
+        / vendor into the wizard so selecting "真实矢网" needs no typing.  The
+        fields stay editable, and a missing key simply keeps the field default.
+        """
+        cfg = {}
+        try:
+            cfg = dict((getattr(self.state, 'vna', {}) or {}).get('config', {}) or {})
+        except Exception:  # noqa: BLE001 - state shape may differ in early builds
+            cfg = {}
+        if not cfg:
+            return
+        # Vendor / interface are combo boxes keyed by data value.
+        for key, value in cfg.items():
+            if key == 'host' and value:
+                self.vna_ip.setText(str(value))
+            elif key == 'port' and value:
+                self.vna_port_value = int(value)
+            elif key == 'timeout_ms' and value:
+                self.vna_timeout_value = int(value)
+            elif key == 'resource' and value:
+                self.vna_resource.setText(str(value))
+            elif key in ('vendor_key', 'vendor') and value:
+                self._set_combo_data(self.vna_vendor, value)
+            elif key == 'interface' and value:
+                self._set_combo_data(self.vna_interface, value)
+        self._sync_vna_interface()
+
+    @staticmethod
+    def _set_combo_data(combo, value) -> None:
+        idx = combo.findData(value)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+
+    def _live_vna_dialect(self) -> dict | None:
+        try:
+            d = ((getattr(self.state, 'vna', {}) or {}).get('config', {}) or {}).get('dialect')
+            return dict(d) if d else None
+        except Exception:  # noqa: BLE001
+            return None
+
     def _init_body(self) -> dict:
         probes = (self.state.hw.probe_count
                   if self.motion_combo.currentData() == 'real'
@@ -707,6 +755,12 @@ class StudioSetupPage(_StudioPage):
             'vna_interface': self.vna_interface.currentData(),
             'vna_resource': self.vna_resource.text().strip(),
             'vna_ip': self.vna_ip.text().strip(),
+            # Port / timeout / SCPI dialect are not exposed as wizard fields;
+            # forward the live VNA controller's values so a real build connects
+            # exactly the way the "矢网控制" page does.
+            'vna_port': getattr(self, 'vna_port_value', None),
+            'vna_timeout_ms': getattr(self, 'vna_timeout_value', None),
+            'vna_dialect': self._live_vna_dialect(),
             'frequency_mode': mode,
             'fo_hz': fo * 1e9,
             'vna_start_hz': (self.vna_start.value() if is_sweep else fo) * 1e9,
@@ -1145,9 +1199,27 @@ class StudioDatabasePage(_StudioPage):
             json.dumps(info['metadata'], indent=2, ensure_ascii=False))
 
     def on_reveal(self) -> None:
+        """Open the folder of the *current* library, not the default data dir.
+
+        ``paths.calibration_dir()`` is only the factory location for new
+        libraries; a library can be opened from or saved to any directory.  The
+        button must reveal where the active library actually lives, so take the
+        path from the live database (falling back to the default directory only
+        when no library has been built/loaded yet).
+        """
         import os
-        target = paths.calibration_dir()
-        target.mkdir(parents=True, exist_ok=True)
+        from pathlib import Path
+        target = None
+        try:
+            info = handlers.studio_database(self.state, {})
+            raw = info.get('path') if isinstance(info, dict) else None
+            if raw:
+                target = Path(str(raw)).parent
+        except Exception:  # noqa: BLE001 - no database yet -> fall back
+            target = None
+        if target is None or not target.is_dir():
+            target = paths.calibration_dir()
+            target.mkdir(parents=True, exist_ok=True)
         try:
             os.startfile(str(target))  # noqa: S606 - Windows shell open
         except Exception as exc:  # noqa: BLE001

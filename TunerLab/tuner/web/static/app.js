@@ -52,9 +52,8 @@ async function loadHwSettings() {
     $('hw-ip').value = r.data.ip || '192.168.0.11';
     $('hw-auto').checked = !!r.data.connect_on_start;
     $('hw-settings-path').textContent = r.data.path || '—';
-    // The operator UI currently offers the 3-axis model only.  A legacy
-    // settings file can still report 4; clamp it instead of leaving the
-    // select blank (no matching <option> would make .value a no-op).
+    // Both 3- and 4-axis models are offered.  Fall back to the first option
+    // only for a stale value with no matching <option>.
     const model = $('hw-model');
     const wanted = String(r.data.axis_count || 3);
     model.value = Array.from(model.options).some(o => o.value === wanted)
@@ -246,6 +245,9 @@ $('hw-model').onchange = async () => {
     return;
   }
   applyAxisSet(r.data.axes || []);
+  // A model change swaps the whole device combination (2 tuners <-> 1),
+  // so rebuild the tuner selector against the new unit set.
+  applyUnitList(r.data.units || [], r.data.active_unit || '');
   showMsg($('hw-scale'),
     'tuner 型号已切换为 ' + count + ' 轴: ' + (r.data.axes || []).join(', '), 'ok');
   await loadHwParams();
@@ -321,6 +323,18 @@ $('hw-home').onclick = async () => {
   const r = await api('POST', '/api/hardware/home', { axis: axis() });
   showMsg($('hw-scale'), r.ok ? axis() + ' 回零结束，状态码 ' + r.data.home_status : '失败: ' + r.error,
     r.ok ? 'ok' : 'error');
+};
+$('hw-init').onclick = async () => {
+  if (!confirm('即将初始化该轴，机械会移动。是否继续？')) return;
+  const r = await api('POST', '/api/hardware/initialize', { axis: axis() });
+  showMsg($('hw-scale'), r.ok ? axis() + ' 初始化完成' : '失败: ' + r.error,
+    r.ok ? 'ok' : 'error');
+};
+$('hw-init-all').onclick = async () => {
+  if (!confirm('即将初始化全部轴，机械会移动。是否继续？')) return;
+  const r = await api('POST', '/api/hardware/initialize_all', {});
+  showMsg($('hw-scale'), r.ok ? '一键初始化完成: ' + r.data.axes.join(', ')
+    : '失败: ' + r.error, r.ok ? 'ok' : 'error');
 };
 $('hw-stop').onclick = async () => {
   const r = await api('POST', '/api/hardware/stop', {});
@@ -1496,36 +1510,188 @@ $('vna-probe-copy').onclick = async () => {
 };
 
 /* ------------------------- Smith scatter helper (vector repeatability / derive) */
+/* One view state per canvas: zoom / pan with reset; click maps back to a point. */
+const smithViews = {};
+function smithView(id) {
+  if (!smithViews[id]) smithViews[id] = { zoom: 1, px: 0, py: 0,
+    points: [], onPick: null };
+  return smithViews[id];
+}
 function drawGammaScatter(canvasId, series) {
   const canvas = $(canvasId);
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
-  const cx = W / 2, cy = H / 2, rad = Math.min(W, H) / 2 - 18;
+  const v = smithView(canvasId);
+  v.lastSeries = series || [];
+  const cx = W / 2 + v.px, cy = H / 2 + v.py;
+  const rad = (Math.min(W, H) / 2 - 18) * v.zoom;
   const xy = (g) => ({ x: cx + rad * g.re, y: cy - rad * g.im });
   ctx.strokeStyle = '#35506b'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 2 * Math.PI); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(cx - rad, cy); ctx.lineTo(cx + rad, cy); ctx.stroke();
+  const flat = [];
   (series || []).forEach((s) => {
     ctx.fillStyle = s.color || '#42c5b7';
-    (s.points || []).forEach((g) => {
+    (s.points || []).forEach((g, i) => {
       const p = xy(g);
       if (s.r) { ctx.beginPath(); ctx.arc(p.x, p.y, s.r, 0, 2 * Math.PI); ctx.fill(); }
       else ctx.fillRect(p.x - 1.4, p.y - 1.4, 2.8, 2.8);
+      if (s.pickable) flat.push({ x: p.x, y: p.y, index: (s.indices || [])[i], g: g });
     });
+  });
+  v.points = flat;
+  // Rubber-band overlay: draw the in-progress selection rectangle so the
+  // operator sees exactly which box will be magnified.
+  if (v.rubber) {
+    const r = v.rubber;
+    ctx.save();
+    ctx.strokeStyle = '#42c5b7'; ctx.lineWidth = 1.2; ctx.setLineDash([5, 4]);
+    ctx.strokeRect(Math.min(r.x1, r.x2), Math.min(r.y1, r.y2),
+                   Math.abs(r.x2 - r.x1), Math.abs(r.y2 - r.y1));
+    ctx.restore();
+  }
+}
+/* Magnify a screen rectangle to fill the view, keeping its centre centred.
+   The zoom factor follows the box size (a small box magnifies more); it is NOT
+   a fixed jump to 60x.  Canvas coordinates are used throughout. */
+function smithZoomToRect(canvasId, x1, y1, x2, y2) {
+  const canvas = $(canvasId);
+  const v = smithView(canvasId);
+  const W = canvas.width, H = canvas.height;
+  const boxW = Math.abs(x2 - x1), boxH = Math.abs(y2 - y1);
+  if (boxW < 4 || boxH < 4) return false;
+  const base = Math.min(W, H) / 2 - 18;
+  const margin = 0.92;
+  const radOld = base * v.zoom;
+  // Scale the *current* zoom so the selected box fills the available diameter.
+  const factor = Math.min((2 * base * margin) / boxW,
+                          (2 * base * margin) / boxH);
+  const newZoom = Math.max(1, Math.min(60, v.zoom * factor));
+  // Γ of the box centre under the old transform.
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  const cRe = (mx - W / 2 - v.px) / radOld;
+  const cIm = -(my - H / 2 - v.py) / radOld;
+  // Recentre so that Γ centre maps to the canvas centre under the new zoom.
+  const radNew = base * newZoom;
+  v.zoom = newZoom;
+  v.px = -radNew * cRe;
+  v.py = radNew * cIm;
+  if (v.onDraw) v.onDraw();
+  return true;
+}
+function smithZoom(canvasId, factor) {
+  const v = smithView(canvasId);
+  v.zoom = Math.max(1, Math.min(60, v.zoom * factor));
+  if (v.onDraw) v.onDraw();
+}
+function smithReset(canvasId) {
+  const v = smithView(canvasId);
+  v.zoom = 1; v.px = 0; v.py = 0; v.rubber = null;
+  if (v.onDraw) v.onDraw();
+}
+/* Attach wheel zoom + box-zoom / shift-drag pan + click pick to a Smith canvas.
+
+   Left-drag draws a selection box that is magnified to fill the view (scaled to
+   the box size, centre kept centred).  Hold Shift while dragging to pan, which
+   preserves the old pan behaviour.  Clicks still pick the nearest data point. */
+function enableSmithInteraction(canvasId, onDraw) {
+  const canvas = $(canvasId);
+  if (!canvas || canvas._smithBound) return;
+  canvas._smithBound = true;
+  const v = smithView(canvasId);
+  v.onDraw = onDraw;
+  let drag = null;
+  const toCanvas = (clientX, clientY) => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: (clientX - rect.left) * canvas.width / rect.width,
+             y: (clientY - rect.top) * canvas.height / rect.height };
+  };
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    smithZoom(canvasId, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+  }, { passive: false });
+  canvas.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const p = toCanvas(e.clientX, e.clientY);
+    drag = { x: p.x, y: p.y, px: v.px, py: v.py, moved: 0, pan: e.shiftKey };
+    if (!drag.pan) { v.rubber = { x1: p.x, y1: p.y, x2: p.x, y2: p.y }; }
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!drag) return;
+    const p = toCanvas(e.clientX, e.clientY);
+    const dx = p.x - drag.x, dy = p.y - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = 1;
+    if (drag.pan) {
+      v.px = drag.px + dx; v.py = drag.py + dy;
+    } else if (v.rubber) {
+      v.rubber.x2 = p.x; v.rubber.y2 = p.y;
+    }
+    onDraw();
+  });
+  window.addEventListener('mouseup', () => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    if (d.pan) { v.rubber = null; return; }
+    const box = v.rubber; v.rubber = null;
+    if (box && (Math.abs(box.x2 - box.x1) >= 4 || Math.abs(box.y2 - box.y1) >= 4)) {
+      smithZoomToRect(canvasId, box.x1, box.y1, box.x2, box.y2);
+    } else {
+      onDraw();  // clear the rubber band
+    }
+  });
+  canvas.addEventListener('click', (e) => {
+    if (!v.onPick) return;
+    const p = toCanvas(e.clientX, e.clientY);
+    let best = null, bestD = Infinity;
+    v.points.forEach((q) => {
+      const d = (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
+      if (d < bestD) { bestD = d; best = q; }
+    });
+    const rect = canvas.getBoundingClientRect();
+    const tol = 14 * (canvas.width / rect.width);
+    if (best && bestD <= tol * tol) v.onPick(best.index, best.g);
   });
 }
 
 /* ------------------------- 指定点位矢量重复性校验 ---------------------- */
 let vrPoints = [];
 let vrSelected = new Set();
+let vrFrequencies = [];
+let vrFrequency = null;
+
+function vrSelectedFrequency() {
+  const raw = $('vr-freq').value;
+  return raw === '' ? null : Number(raw);
+}
+
+function vrFillFrequencies(freqs, current) {
+  const sel = $('vr-freq');
+  if (!sel) return;
+  const values = (freqs || []).map(Number);
+  vrFrequencies = values;
+  sel.innerHTML = '<option value="">（请选择频率）</option>'
+    + values.map((hz) => `<option value="${hz}">${(hz / 1e9).toFixed(4)} GHz</option>`).join('');
+  const wanted = current != null ? current : (values.length ? values[Math.floor(values.length / 2)] : null);
+  if (wanted != null) sel.value = String(wanted);
+  vrFrequency = vrSelectedFrequency();
+}
 
 async function vrLoadPoints() {
-  const r = await api('GET', '/api/studio/library/points', {});
+  const body = {};
+  const f = vrSelectedFrequency();
+  if (f != null) body.frequency_hz = f;
+  const r = await api('GET', '/api/studio/library/points', body);
   const tb = $('vr-points').querySelector('tbody');
   tb.innerHTML = '';
-  vrPoints = (r.ok && r.data) ? r.data.points : [];
+  if (r.ok && r.data) {
+    vrFillFrequencies(r.data.frequencies_hz, r.data.frequency_hz || f);
+    vrPoints = r.data.points || [];
+  } else {
+    vrPoints = [];
+  }
+  const keep = new Set(vrSelected);
   vrSelected.clear();
   vrPoints.forEach((p) => {
     const tr = document.createElement('tr');
@@ -1534,6 +1700,7 @@ async function vrLoadPoints() {
       + `<td class="num">[${p.position.map((v) => v.toFixed(3)).join(', ')}]</td>`
       + `<td class="num">${p.gamma_mag.toFixed(4)}</td>`;
     const cb = tr.querySelector('input');
+    if (keep.has(p.index)) { cb.checked = true; vrSelected.add(p.index); }
     cb.addEventListener('change', () => {
       if (cb.checked) vrSelected.add(p.index); else vrSelected.delete(p.index);
       vrUpdateCount(); vrUpdateSmith();
@@ -1551,10 +1718,23 @@ function vrUpdateSmith() {
   const sel = vrPoints.filter((p) => vrSelected.has(p.index))
     .map((p) => ({ re: p.gamma_re, im: p.gamma_im }));
   drawGammaScatter('vr-smith', [
-    { points: all, color: '#9fb6cc' },
+    { points: all, color: '#9fb6cc', pickable: true,
+      indices: vrPoints.map((p) => p.index) },
     { points: sel, color: '#e2483d', r: 4 },
   ]);
 }
+
+function vrPickPoint(index) {
+  const cb = document.querySelector(`#vr-points input[data-idx="${index}"]`);
+  if (cb && !cb.checked) cb.click();
+}
+
+enableSmithInteraction('vr-smith', vrUpdateSmith);
+smithView('vr-smith').onPick = (index) => vrPickPoint(index);
+$('vr-freq').addEventListener('change', () => { vrFrequency = vrSelectedFrequency(); vrLoadPoints(); });
+$('vr-smith-in').onclick = () => smithZoom('vr-smith', 1.3);
+$('vr-smith-out').onclick = () => smithZoom('vr-smith', 1 / 1.3);
+$('vr-smith-reset').onclick = () => smithReset('vr-smith');
 
 $('vr-load').onclick = vrLoadPoints;
 $('vr-select-all').onclick = () => {
@@ -1565,11 +1745,13 @@ $('vr-clear').onclick = () => {
 };
 
 $('vr-run').onclick = async () => {
+  const f = vrSelectedFrequency();
+  if (f == null) { showMsg($('vr-msg'), '请先从频率列表选择频率，再开始校验', 'error'); return; }
   const indices = Array.from(vrSelected);
   if (!indices.length) { showMsg($('vr-msg'), '请先勾选至少一个点位', 'error'); return; }
   const tol = parseFloat($('vr-tol').value);
   const r = await api('POST', '/api/studio/repeatability/vector',
-    { indices, tolerance_db: isFinite(tol) ? tol : null });
+    { indices, frequency_hz: f, tolerance_db: isFinite(tol) ? tol : null });
   if (!r.ok) { showMsg($('vr-msg'), '启动失败: ' + r.error, 'error'); return; }
   showMsg($('vr-msg'), '测试中：会逐点移动机械并触发矢网，请稍候…', 'info');
   const timer = setInterval(async () => {
@@ -1603,7 +1785,21 @@ $('vr-run').onclick = async () => {
 };
 
 /* ------------------------- 按 Γ 分布派生新库 --------------------------- */
+let gdFreqLoaded = false;
+async function gdFillFrequencies() {
+  if (gdFreqLoaded) return;
+  const r = await api('GET', '/api/studio/library/points', {});
+  if (!r.ok || !r.data) return;
+  const sel = $('gd-freq');
+  const values = (r.data.frequencies_hz || []).map(Number);
+  sel.innerHTML = '<option value="">（请选择频率）</option>'
+    + values.map((hz) => `<option value="${hz}">${(hz / 1e9).toFixed(4)} GHz</option>`).join('');
+  if (values.length) sel.value = String(values[Math.floor(values.length / 2)]);
+  gdFreqLoaded = true;
+}
+
 async function gdPreview() {
+  await gdFillFrequencies();
   const plan = $('gd-plan').value;
   const density = $('gd-density').value;
   const body = {
@@ -1617,8 +1813,17 @@ async function gdPreview() {
   $('gd-result').textContent = `目标 Γ 点数: ${r.data.count}\n${JSON.stringify(body, null, 2)}`;
 }
 $('gd-preview').onclick = gdPreview;
+$('gd-smith-in').onclick = () => smithZoom('gd-smith', 1.3);
+$('gd-smith-out').onclick = () => smithZoom('gd-smith', 1 / 1.3);
+$('gd-smith-reset').onclick = () => smithReset('gd-smith');
+enableSmithInteraction('gd-smith', () => {
+  // Redraw the last target set from the stored points on this view.
+  const v = smithView('gd-smith');
+  drawGammaScatter('gd-smith', [{ points: v.lastSeries || [], color: '#2b7fd4' }]);
+});
 
 $('gd-run').onclick = async () => {
+  await gdFillFrequencies();
   const freqRaw = $('gd-freq').value.trim();
   const body = {
     path: $('gd-path').value.trim(),
@@ -1627,7 +1832,8 @@ $('gd-run').onclick = async () => {
     r_min: parseFloat($('gd-rmin').value),
     r_max: parseFloat($('gd-rmax').value),
   };
-  if (freqRaw !== '') body.frequency_hz = parseFloat(freqRaw) * 1e9;
+  if (freqRaw === '') { $('gd-result').textContent = '请先从频率列表选择频点再派生'; return; }
+  body.frequency_hz = Number(freqRaw);
   if (!body.path) { $('gd-result').textContent = '请先填写输出路径'; return; }
   $('gd-result').textContent = '派生中…';
   const r = await api('POST', '/api/studio/library/plan_derive', body);

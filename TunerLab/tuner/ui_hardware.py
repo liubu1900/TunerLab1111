@@ -842,8 +842,11 @@ class AxisMotionPage(_Page):
         self.errors_button = QPushButton('读取控制器错误码')
         self.errors_button.setToolTip(
             '读取控制器自身的错误号，并把 AXISSTATUS / AXIS_STOPREASON 的状态位翻译成文字。')
+        self.init_all_button = QPushButton('一键初始化全部轴')
+        self.init_all_button.setToolTip('一键初始化全部轴（会移动机械）')
         button_row.addWidget(self.stop_button)
         button_row.addWidget(self.errors_button)
+        button_row.addWidget(self.init_all_button)
         button_row.addStretch()
         control_layout.addLayout(button_row)
 
@@ -885,6 +888,7 @@ class AxisMotionPage(_Page):
         self.estop_button.clicked.connect(self.on_emergency_stop)
         self.reset_button.clicked.connect(self.on_reset_emergency)
         self.errors_button.clicked.connect(self.on_read_errors)
+        self.init_all_button.clicked.connect(self.on_initialize_all)
         self.apply_scale_button.clicked.connect(self.on_apply_scale)
 
         # No motion task may run before the page is fully built.
@@ -989,6 +993,9 @@ class AxisMotionPage(_Page):
 
         home_btn = QPushButton('回零')
         vbox.addWidget(home_btn)
+        init_btn = QPushButton('初始化')
+        init_btn.setToolTip('初始化该轴（会移动机械）')
+        vbox.addWidget(init_btn)
         probe_btn = QPushButton('标度自检')
         probe_btn.setToolTip(
             '让该轴走一个极小步长再回到原位，测量「编码器位移 ÷ 指令位移」。'
@@ -999,13 +1006,15 @@ class AxisMotionPage(_Page):
             'panel': panel, 'light': light, 'home_text': home_text,
             'bar': bar, 'dpos_label': dpos_label, 'step': step,
             'jog_neg': jog_neg, 'jog_pos': jog_pos, 'target': target,
-            'abs_btn': abs_btn, 'home_btn': home_btn, 'probe_btn': probe_btn,
+            'abs_btn': abs_btn, 'home_btn': home_btn, 'init_btn': init_btn,
+            'probe_btn': probe_btn,
         }
         # Capture ``axis`` by value so each panel drives its own axis.
         jog_neg.clicked.connect(lambda _=False, a=axis: self.on_jog(a, -1))
         jog_pos.clicked.connect(lambda _=False, a=axis: self.on_jog(a, +1))
         abs_btn.clicked.connect(lambda _=False, a=axis: self.on_absolute(a))
         home_btn.clicked.connect(lambda _=False, a=axis: self.on_home(a))
+        init_btn.clicked.connect(lambda _=False, a=axis: self.on_initialize_axis(a))
         probe_btn.clicked.connect(lambda _=False, a=axis: self.on_probe_scale(a))
         return panel
 
@@ -1103,6 +1112,57 @@ class AxisMotionPage(_Page):
     def on_home(self, axis: str) -> None:
         self._run_motion(lambda: self._home(axis))
 
+    # -- axis initialisation (home + MPOS := 0) -------------------------
+    def on_initialize_axis(self, axis: str) -> None:
+        """Initialise one axis: home it, then define its MPOS as zero."""
+        self._run_motion(lambda: self._initialize_axis(axis))
+
+    def _initialize_axis(self, axis: str) -> None:
+        # Reuse whichever homing path the concrete page selected (the desktop
+        # page overrides _home with the machine's OP-pulse homing).
+        self._home(axis)
+        controller = getattr(self.session, 'controller', None)
+        self._zero_mpos(axis, controller)
+
+    @staticmethod
+    def _zero_mpos(axis: str, controller=None) -> bool:
+        """Set the feedback position MPOS to 0 for ``axis``.
+
+        Returns True when a controller offered the API.  A virtual controller
+        has no MPOS register; there the homing step already defines the frame.
+        """
+        link = getattr(controller, 'link', None)
+        setter = getattr(link, 'set_mpos', None)
+        if not callable(setter):
+            return False
+        index = controller.physical_axis(axis)
+        setter(index, 0.0)
+        operation_log.info('初始化', 'MPOS 归零', f'{axis} MPOS → 0', axis=axis)
+        return True
+
+    def on_initialize_all(self) -> None:
+        """Initialise every axis of the active model in one background task."""
+        if QMessageBox.question(
+                self, '一键初始化',
+                '即将初始化全部轴，机械会移动。是否继续？') != QMessageBox.Yes:
+            return
+        self._run_motion(self._initialize_all)
+
+    def _initialize_all(self) -> None:
+        axes = list(getattr(self.session, 'axes', ()))
+        # X must be homed last on coupled machines: probe axes need a reference
+        # first.  Preserve order otherwise.
+        if 'X' in axes and axes.index('X') != len(axes) - 1:
+            axes = [a for a in axes if a != 'X'] + ['X']
+        done = []
+        for axis in axes:
+            self._initialize_axis(axis)
+            done.append(axis)
+            self.log(f'轴 {axis} 初始化完成（{len(done)}/{len(axes)}）')
+        operation_log.info('初始化', '一键初始化全部轴',
+                           f'完成 {len(done)} 轴: {", ".join(done)}', axes=done)
+        self.log(f'一键初始化完成：{", ".join(done)}')
+
     def _home(self, axis: str) -> None:
         controller = self.session.require_controller()
         try:
@@ -1154,10 +1214,17 @@ class AxisMotionPage(_Page):
     def _set_motion_controls_enabled(self, enabled: bool) -> None:
         """Toggle every per-axis motion control; *Stop* and *Emergency stop* stay live."""
         for entry in self.axis_panels.values():
-            for widget in (entry['jog_neg'], entry['jog_pos'], entry['abs_btn'],
-                          entry['home_btn'], entry['probe_btn'], entry['step'],
-                          entry['target']):
+            controls = [entry['jog_neg'], entry['jog_pos'], entry['abs_btn'],
+                        entry['home_btn'], entry['probe_btn'], entry['step'],
+                        entry['target']]
+            init_btn = entry.get('init_btn')
+            if init_btn is not None:
+                controls.append(init_btn)
+            for widget in controls:
                 widget.setEnabled(enabled)
+        init_all = getattr(self, 'init_all_button', None)
+        if init_all is not None:
+            init_all.setEnabled(enabled)
 
     def on_stop(self) -> None:
         # Stop is issued synchronously on the UI thread so it never waits for a

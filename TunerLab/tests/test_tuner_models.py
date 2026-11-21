@@ -15,8 +15,8 @@ import numpy as np
 import pytest
 
 from tuner.axis_params import (
-    CONTROLLER_AXES, DEFAULT_AXIS_COUNT, TUNER_MODELS, axis_count_of,
-    axis_index, default_axis_params, tuner_axes,
+    CONTROLLER_AXES, DEFAULT_ACTIVE_AXIS_COUNT, DEFAULT_AXIS_COUNT,
+    TUNER_MODELS, axis_count_of, axis_index, default_axis_params, tuner_axes,
 )
 from tuner.models import TunerConfig
 from tuner.settings import SCHEMA_VERSION, SettingsStore, TunerSettings
@@ -66,11 +66,14 @@ def test_default_parameters_follow_the_model():
 
 
 # --------------------------------------------------------------- settings
-def test_settings_default_to_the_four_axis_model():
+def test_settings_default_to_the_commissioned_three_axis_combination():
+    """A fresh install matches the wired two-tuner, 3-axis machine."""
     settings = TunerSettings()
-    assert settings.axis_count == DEFAULT_AXIS_COUNT
-    assert settings.active_axes == ('X', 'Z1', 'Z2', 'Z3')
-    assert settings.probe_count == 3
+    assert settings.axis_count == DEFAULT_ACTIVE_AXIS_COUNT == 3
+    assert settings.active_axes == ('X', 'Z1', 'Z2')
+    assert settings.probe_count == 2
+    # Both models remain available for the operator to select.
+    assert set(settings.units_by_model) == {3, 4}
 
 
 def test_settings_round_trip_keeps_the_model(tmp_path):
@@ -324,8 +327,9 @@ def test_the_desktop_pages_follow_the_tuner_model(qapp, no_modal_dialogs):
     motion = AxisMotionPage(session)
     parameters = AxisParameterPage(session)
 
-    assert len(motion.axis_panels) == 4
-    assert parameters.table.rowCount() == 4
+    # Fresh install starts on the commissioned 3-axis combination.
+    assert len(motion.axis_panels) == 3
+    assert parameters.table.rowCount() == 3
 
     index = communication.model_combo.findData(3)
     assert index >= 0

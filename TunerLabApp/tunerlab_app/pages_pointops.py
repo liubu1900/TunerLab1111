@@ -23,7 +23,7 @@ from tuner.ui import SmithChart
 from tuner.ui_theme import numeric_font
 from tuner.web import handlers
 from .pages_base import _StudioPage, _page_title
-from .ui import Card, field_label, hint_label
+from .ui import Card, field_label, hint_label, smith_control_row
 
 
 class VectorRepeatabilityPage(_StudioPage):
@@ -44,20 +44,25 @@ class VectorRepeatabilityPage(_StudioPage):
         self.load_btn = QPushButton('载入库点位')
         self.all_btn = QPushButton('全选')
         self.none_btn = QPushButton('清空')
+        top.addWidget(self.load_btn)
+        top.addWidget(self.all_btn)
+        top.addWidget(self.none_btn)
+        top.addWidget(field_label('频率'))
+        self.freq_combo = QComboBox()
+        self.freq_combo.setMinimumWidth(130)
+        self.freq_combo.setToolTip('从当前校准库的频率列表中选择；矢量重复性必须在选定频率上进行')
+        top.addWidget(self.freq_combo)
         self.tol = QDoubleSpinBox()
         self.tol.setRange(-200.0, 0.0)
         self.tol.setDecimals(1)
         self.tol.setValue(-30.0)
         self.tol.setSuffix(' dB')
-        self.run_btn = QPushButton('开始矢量重复性测试')
-        self.run_btn.setProperty('accent', True)
-        self.run_btn.setObjectName('DangerButton')
-        top.addWidget(self.load_btn)
-        top.addWidget(self.all_btn)
-        top.addWidget(self.none_btn)
         top.addWidget(field_label('判定阈值'))
         top.addWidget(self.tol)
         top.addStretch()
+        self.run_btn = QPushButton('开始矢量重复性测试')
+        self.run_btn.setProperty('accent', True)
+        self.run_btn.setObjectName('DangerButton')
         top.addWidget(self.run_btn)
         root.addLayout(top)
 
@@ -69,10 +74,17 @@ class VectorRepeatabilityPage(_StudioPage):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setMinimumWidth(440)
+        smith_box = QVBoxLayout()
+        smith_box.setSpacing(6)
         self.smith = SmithChart()
+        smith_box.addLayout(smith_control_row(self.smith))
         self.smith.setMinimumSize(360, 320)
+        smith_box.addWidget(self.smith)
+        smith_box.addWidget(hint_label(
+            '单击图中的点可选中对应点位；滚轮 / 缩放、移动 按钮或拖拽可平移，'
+            '双击或「复位」恢复原视图。'))
         body.addWidget(self.table, 1)
-        body.addWidget(self.smith)
+        body.addLayout(smith_box)
         root.addLayout(body, 1)
 
         self.selected_label = QLabel('已选 0 点')
@@ -89,8 +101,11 @@ class VectorRepeatabilityPage(_StudioPage):
         self.all_btn.clicked.connect(self.select_all)
         self.none_btn.clicked.connect(self.select_none)
         self.run_btn.clicked.connect(self.on_run)
+        self.freq_combo.currentIndexChanged.connect(self._on_frequency_changed)
+        self.smith.picked.connect(self._on_smith_picked)
 
         self._points = []
+        self._frequencies: list[float] = []
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self._poll)
@@ -102,13 +117,50 @@ class VectorRepeatabilityPage(_StudioPage):
     def refresh(self) -> None:
         self.load_points()
 
+    def _selected_frequency(self):
+        return self.freq_combo.currentData()
+
+    def _sync_frequencies(self, frequencies: list[float]) -> None:
+        values = [float(f) for f in frequencies]
+        if values == self._frequencies:
+            return
+        previous = self.freq_combo.currentData()
+        self._frequencies = values
+        self.freq_combo.blockSignals(True)
+        self.freq_combo.clear()
+        for hz in values:
+            self.freq_combo.addItem(f'{hz / 1e9:.4f} GHz', hz)
+        restore = self.freq_combo.findData(previous) if previous is not None else -1
+        if restore >= 0:
+            self.freq_combo.setCurrentIndex(restore)
+        self.freq_combo.blockSignals(False)
+
+    def _on_frequency_changed(self) -> None:
+        # Re-read |Γ| at the chosen frequency, keeping the checked point indices.
+        selected = set(self._selected_indices())
+        self.load_points()
+        for row in range(self.table.rowCount()):
+            index = int(self.table.item(row, 1).text())
+            if index in selected:
+                self.table.item(row, 0).setCheckState(Qt.Checked)
+        self._update_selection()
+
     def load_points(self) -> None:
+        body = {}
+        frequency = self._selected_frequency()
+        if frequency is not None:
+            body['frequency_hz'] = float(frequency)
         try:
-            data = handlers.studio_library_points(self.state, {})
+            data = handlers.studio_library_points(self.state, body)
         except Exception as exc:  # noqa: BLE001
             self.warn('载入失败', f'{type(exc).__name__}: {exc}')
             return
+        self._sync_frequencies(data.get('frequencies_hz', []))
         self._points = data.get('points', [])
+        try:
+            self.table.itemChanged.disconnect(self._on_check_changed)
+        except (TypeError, RuntimeError):
+            pass
         self.table.setRowCount(0)
         for p in self._points:
             row = self.table.rowCount()
@@ -123,6 +175,26 @@ class VectorRepeatabilityPage(_StudioPage):
             self.table.setItem(row, 3, QTableWidgetItem(f"{p['gamma_mag']:.5f}"))
         self.table.itemChanged.connect(self._on_check_changed)
         self._update_selection()
+
+    def _on_smith_picked(self, gamma) -> None:
+        """Map a click on the Smith chart back to the closest measured point."""
+        if not self._points or gamma is None:
+            return
+        target = complex(gamma)
+        best_row, best_dist = None, float('inf')
+        for row, p in enumerate(self._points):
+            point_gamma = complex(p['gamma_re'], p['gamma_im'])
+            distance = abs(point_gamma - target)
+            if distance < best_dist:
+                best_row, best_dist = row, distance
+        if best_row is None or best_dist > 0.25:
+            return
+        self.table.blockSignals(True)
+        self.table.item(best_row, 0).setCheckState(Qt.Checked)
+        self.table.blockSignals(False)
+        self._update_selection()
+        self.selected_label.setText(
+            f'已选 {len(self._selected_indices())} 点 · 图选 Γ≈{target.real:.3f}{target.imag:+.3f}j')
 
     def _on_check_changed(self, _item) -> None:
         self._update_selection()
@@ -162,14 +234,21 @@ class VectorRepeatabilityPage(_StudioPage):
 
     # -- action -----------------------------------------------------------
     def on_run(self) -> None:
+        frequency = self._selected_frequency()
+        if frequency is None:
+            QMessageBox.information(
+                self, '矢量重复性', '请先从频率列表选择一个频率，再开始校验')
+            return
         indices = self._selected_indices()
         if not indices:
             QMessageBox.information(self, '矢量重复性', '请先勾选至少一个点位')
             return
-        body = {'indices': indices, 'tolerance_db': float(self.tol.value())}
+        body = {'indices': indices, 'tolerance_db': float(self.tol.value()),
+                'frequency_hz': float(frequency)}
         if QMessageBox.question(
                 self, '确认实测',
-                f'将对 {len(indices)} 个点位逐点移动机械并触发矢网复测一次。\n'
+                f'将对 {len(indices)} 个点位在 {float(frequency) / 1e9:.4f} GHz '
+                '逐点移动机械并触发矢网复测一次。\n'
                 '请确认回零与行程可用、矢网已连接。是否继续？') != QMessageBox.Yes:
             return
         try:
@@ -230,9 +309,13 @@ class GammaPlanDerivePage(_StudioPage):
         self.density.addItem('中 · 181 点', 'medium')
         self.density.addItem('高 · 361 点', 'high')
         self.density.setCurrentIndex(1)
+        self.freq_combo = QComboBox()
+        self.freq_combo.setMinimumWidth(130)
+        self.freq_combo.setToolTip('从当前校准库的频率列表中选择；派生库只保留该频点')
         self.rmin = QDoubleSpinBox(); self.rmin.setRange(0.0, 1.0); self.rmin.setDecimals(3); self.rmin.setValue(0.0)
         self.rmax = QDoubleSpinBox(); self.rmax.setRange(0.0, 1.0); self.rmax.setDecimals(3); self.rmax.setValue(0.95)
         for w, label in ((self.plan, '布点方式'), (self.density, '密度'),
+                         (self.freq_combo, '频率'),
                          (self.rmin, '|Γ|最小'), (self.rmax, '|Γ|最大')):
             grid.addWidget(field_label(label))
             grid.addWidget(w)
@@ -253,18 +336,52 @@ class GammaPlanDerivePage(_StudioPage):
         root.addLayout(out_row)
 
         body = QHBoxLayout()
+        smith_box = QVBoxLayout()
+        smith_box.setSpacing(6)
         self.smith = SmithChart()
+        smith_box.addLayout(smith_control_row(self.smith))
         self.smith.setMinimumSize(360, 320)
+        smith_box.addWidget(self.smith)
+        body.addLayout(smith_box)
         self.result = QTextEdit()
         self.result.setReadOnly(True)
         self.result.setFont(numeric_font(9))
-        body.addWidget(self.smith)
         body.addWidget(self.result, 1)
         root.addLayout(body, 1)
 
         self.browse.clicked.connect(self.on_browse)
         self.preview_btn.clicked.connect(self.on_preview)
         self.derive_btn.clicked.connect(self.on_derive)
+        self.freq_combo.currentIndexChanged.connect(self._on_frequency_changed)
+        self._frequencies: list[float] = []
+        self.refresh()
+
+    def on_library_changed(self, path: str) -> None:
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Follow the active library's frequency list (mid-band default)."""
+        try:
+            data = handlers.studio_library_points(self.state, {})
+        except Exception:  # noqa: BLE001 - no library yet
+            return
+        frequencies = [float(v) for v in data.get('frequencies_hz', [])]
+        if frequencies == self._frequencies:
+            return
+        previous = self.freq_combo.currentData()
+        self._frequencies = frequencies
+        self.freq_combo.blockSignals(True)
+        self.freq_combo.clear()
+        for hz in frequencies:
+            self.freq_combo.addItem(f'{hz / 1e9:.4f} GHz', hz)
+        restore = (self.freq_combo.findData(previous) if previous is not None else -1)
+        if restore < 0 and frequencies:
+            restore = len(frequencies) // 2
+        self.freq_combo.setCurrentIndex(max(0, restore))
+        self.freq_combo.blockSignals(False)
+
+    def _on_frequency_changed(self) -> None:
+        self.on_preview()
 
     def on_browse(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, '派生库输出', '', 'HDF5 (*.h5 *.hdf5)')
@@ -272,12 +389,16 @@ class GammaPlanDerivePage(_StudioPage):
             self.path_edit.setText(path)
 
     def _body(self):
-        return {
+        body = {
             'plan': self.plan.currentData(),
             'density': self.density.currentData(),
             'r_min': float(self.rmin.value()),
             'r_max': float(self.rmax.value()),
         }
+        frequency = self.freq_combo.currentData()
+        if frequency is not None:
+            body['frequency_hz'] = float(frequency)
+        return body
 
     def on_preview(self) -> None:
         try:
@@ -295,6 +416,9 @@ class GammaPlanDerivePage(_StudioPage):
         path = self.path_edit.text().strip()
         if not path:
             QMessageBox.information(self, '派生新库', '请先选择输出路径')
+            return
+        if self.freq_combo.currentData() is None:
+            QMessageBox.information(self, '派生新库', '请先从频率列表选择频点再派生')
             return
         body = dict(self._body(), path=path)
         try:

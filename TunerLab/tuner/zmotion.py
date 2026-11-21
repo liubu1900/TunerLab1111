@@ -586,6 +586,15 @@ class ZmotionController:
         self.require_connection()
         self.lib.set_f32(self._handle, self.lib.set_dpos, axis, value, 'set DPOS')
 
+    def set_mpos(self, axis: int, value: float) -> None:
+        """Set the encoder (feedback) position without moving the motor.
+
+        ``ZAux_Direct_SetMpos`` is already bound on :class:`ZmotionLibrary`;
+        axis initialisation uses it to define the homed pose as MPOS 0.
+        """
+        self.require_connection()
+        self.lib.set_f32(self._handle, self.lib.set_mpos, axis, value, 'set MPOS')
+
     def if_idle(self, axis: int) -> bool:
         """``True`` when the axis has finished (or never started) moving."""
         self.require_connection()

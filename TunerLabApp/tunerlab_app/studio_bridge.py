@@ -20,6 +20,7 @@ handler untouched, so nothing about the simulated workflow changes.
 """
 from __future__ import annotations
 
+from tuner.frequency_plan import apply_frequency_plan
 from tuner.motion import MotionPlanner
 from tuner.operation_log import operation_log
 from tuner.vna import MockVNAController
@@ -84,6 +85,25 @@ def _init_real(state, body: dict):
 
     vna, vna_source_used = _build_vna(state, body, config, motion)
 
+    # Mirror the P0 frequency state that handlers.studio_init_hardware records.
+    # _init_real used to skip this, so a library built through the desktop real
+    # path carried an empty frequency list in its header even when the operator
+    # selected a sweep/list plan.
+    frequency_mode = str(body.get('frequency_mode') or '').strip().lower()
+    if frequency_mode and frequency_mode != 'freq_sweep':
+        frequency_plan = handlers._frequency_plan_from_body(body)
+    else:
+        grid = getattr(vna, 'frequencies', None)
+        values = [float(v) for v in grid] if grid is not None else []
+        if not values:
+            values = [5e9]
+        frequency_plan = {
+            'mode': frequency_mode or ('fo_list' if len(values) == 1 else 'freq_sweep'),
+            'frequencies_hz': values,
+            'points': len(values),
+            'uniform': True,
+        }
+
     with state.studio_lock:
         state.studio['config'] = config
         state.studio['motion'] = motion
@@ -100,6 +120,9 @@ def _init_real(state, body: dict):
         state.studio['validation_report'] = None
         state.studio['calibration_state'] = 'idle'
         state.studio['calibration_progress'] = (0, 0)
+        state.studio['frequency_mode'] = frequency_plan['mode']
+        state.studio['frequency_plan'] = frequency_plan
+        state.studio['frequency_hz'] = float(frequency_plan['frequencies_hz'][0])
     return state.studio_overview()
 
 
@@ -121,28 +144,53 @@ def _check_feedback_scales(state) -> None:
             '请到「轴移动控制」做一次标度自检，比值接近 1 即可直接继续。')
 
 
+def _live_vna_cfg(state) -> dict:
+    """The connection currently in use on the "矢网控制" page (may be empty)."""
+    if state is None:
+        return {}
+    try:
+        return dict((getattr(state, 'vna', {}) or {}).get('config', {}) or {})
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def _build_vna(state, body: dict, config, motion):
     """Real instrument when asked, otherwise the synthetic one (original rules)."""
     if body.get('vna_source', 'mock') == 'real':
-        vendor = str(body.get('vna_vendor') or 'auto')
-        host = str(body.get('vna_ip') or '192.168.2.111')
-        port = int(body.get('vna_port', 5025))
-        timeout = float(body.get('vna_timeout_ms', 10000)) / 1000.0
-        interface = str(body.get('vna_interface') or 'tcpip').strip().lower()
-        resource = str(body.get('vna_resource') or DEFAULT_GPIB_RESOURCE).strip()
+        live = _live_vna_cfg(state)
+        # Connection parameters default to the live VNA-control settings; the
+        # wizard only overrides them when it was explicitly given a value.
+        vendor = str(body.get('vna_vendor') or live.get('vendor_key') or 'auto')
+        host = str(body.get('vna_ip') or live.get('host') or '192.168.2.111')
+        port = int(body.get('vna_port') or live.get('port') or 5025)
+        timeout_ms = body.get('vna_timeout_ms') or live.get('timeout_ms') or 10000
+        timeout = float(timeout_ms) / 1000.0
+        interface = str(body.get('vna_interface') or live.get('interface') or 'tcpip').strip().lower()
+        resource = str(body.get('vna_resource') or live.get('resource') or DEFAULT_GPIB_RESOURCE).strip()
         start = float(body.get('vna_start_hz', 1e9))
         stop = float(body.get('vna_stop_hz', 20e9))
         points = int(body.get('vna_points', 401))
         # A dialect pinned by the SCPI debug tool also applies to a real-VNA
         # library build, otherwise the wizard would still collect -113s.
         dialect = body.get('vna_dialect')
-        if dialect is None and state is not None:
-            dialect = (getattr(state, 'vna', {}) or {}).get('config', {}).get('dialect')
+        if dialect is None:
+            dialect = live.get('dialect')
         vna = create_vna(vendor, host, port, timeout,
                          interface=interface, resource=resource,
                          dialect=dialect or None)
         vna.connect()
-        vna.set_sweep(start, stop, points)
+        # Apply the validated frequency plan for EVERY mode.  Previously this
+        # path always called set_sweep(start, stop, points) from the body, but
+        # in list modes _init_body sends start == stop == fo and points == 1,
+        # so a real instrument stayed on the 5 GHz single point no matter what
+        # frequency list the operator entered.  ``apply_frequency_plan`` drives
+        # the chosen grid (and, for lists, the swept band) onto the VNA.
+        frequency_mode = str(body.get('frequency_mode') or '').strip().lower()
+        if frequency_mode and frequency_mode != 'freq_sweep':
+            plan = handlers._frequency_plan_from_body(body)
+            apply_frequency_plan(vna, plan)
+        else:
+            vna.set_sweep(start, stop, points)
         return vna, 'real'
     vna = MockVNAController(config, motion, DEFAULT_FREQUENCIES)
     vna.initialize()

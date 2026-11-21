@@ -1,9 +1,10 @@
-"""Axis labels follow the loaded library; only the 3-axis model is offered.
+"""Axis labels follow the loaded library; both 3- and 4-axis models are offered.
 
 A 3-axis library (X / Z1 / Z2) used to be labelled ``X / Z1 / Z2 / Z3`` by
-the Smith page, which made a non-existent fourth probe look real.  The
-communication page also offered a 4-axis model the machine on site does not
-have.  Both are UI-level, reversible changes.
+the Smith page, which made a non-existent fourth probe look real.  That
+label is derived from the loaded library's axis count and stays correct for
+both models.  The communication page offers the two mutually exclusive
+installations: 3 axes = two 3-axis tuners, 4 axes = one 4-axis tuner.
 """
 from __future__ import annotations
 
@@ -110,30 +111,39 @@ def test_move_only_and_verified_cards_label_the_real_axes(page):
 
 
 # --------------------------------------------------------------- tuner model
-def test_communication_page_offers_only_the_three_axis_model(app):
+def test_communication_page_offers_both_models(app):
     store = SettingsStore(pathlib.Path(tempfile.mkdtemp()) / 'settings.json')
     session = TunerSession(store)
     page = CommunicationPage(session)
-    assert page.model_combo.count() == 1
-    assert page.model_combo.findData(4) < 0
-    assert page.model_combo.itemData(0) == 3
+    assert page.model_combo.count() == 2
+    assert page.model_combo.findData(3) >= 0
+    assert page.model_combo.findData(4) >= 0
     assert page.model_combo.currentData() == 3
 
 
-def test_a_legacy_four_axis_setting_is_normalised_to_three(app):
+def test_switching_model_rebuilds_the_tuner_selector(app):
     store = SettingsStore(pathlib.Path(tempfile.mkdtemp()) / 'settings.json')
     session = TunerSession(store)
+    page = CommunicationPage(session)
+    # 3-axis installation has two tuners.
+    assert page.unit_combo.count() == 2
+    page.model_combo.setCurrentIndex(page.model_combo.findData(4))
+    # 4-axis installation is a single tuner at physical axes 0..3.
     assert session.settings.axis_count == 4
-    CommunicationPage(session)
-    assert session.settings.axis_count == 3
-    assert store.load().axis_count == 3
+    assert page.unit_combo.count() == 1
+    assert session.active_unit.axis_map() == {'X': 0, 'Z1': 1, 'Z2': 2, 'Z3': 3}
+    assert store.load().axis_count == 4
+    page.model_combo.setCurrentIndex(page.model_combo.findData(3))
+    assert page.unit_combo.count() == 2
+    assert session.active_unit.axis_map() == {'X': 0, 'Z1': 1, 'Z2': 2}
 
 
-def test_web_console_hides_the_four_axis_option():
+def test_web_console_offers_both_axis_options():
     static = pathlib.Path(handlers.__file__).parent / 'static'
     html = (static / 'index.html').read_text(encoding='utf-8')
     js = (static / 'app.js').read_text(encoding='utf-8')
     assert '<option value="3"' in html
-    assert '<option value="4"' not in html
-    # A legacy settings file reporting 4 axes must not leave the select blank.
+    assert '<option value="4"' in html
+    assert '0/1/2/3' in html
+    # An unknown value must not leave the select blank.
     assert 'model.options' in js

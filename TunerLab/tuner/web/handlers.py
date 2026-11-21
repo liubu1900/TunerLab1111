@@ -470,6 +470,56 @@ def hw_home(state, body):
     return {'axis': axis, 'home_status': int(homed), 'snapshot': snapshot}
 
 
+def hw_initialize(state, body):
+    """Home one axis and set its feedback position (MPOS) to zero."""
+    axis = str(body['axis'])
+    with state.hw_lock:
+        controller = _require_controller(state)
+        try:
+            controller.home_axis_safe(axis, controller.config.motion_timeout)
+            homed = axis in controller.homed_axes
+            index = controller.physical_axis(axis)
+            link = getattr(controller, 'link', None)
+            setter = getattr(link, 'set_mpos', None)
+            if callable(setter):
+                setter(index, 0.0)
+            snapshot = controller.axis_status_snapshot()
+        except Exception as exc:  # noqa: BLE001
+            operation_log.exception('初始化', '单轴初始化', exc, axis=axis)
+            raise
+    operation_log.log('初始化', '单轴初始化',
+                      f'{axis} 回零 + MPOS 归零'
+                      f'{"完成" if homed else "未完成"}',
+                      'info' if homed else 'warn', axis=axis)
+    return {'axis': axis, 'home_status': int(homed), 'mpos_zeroed': callable(setter),
+            'snapshot': snapshot}
+
+
+def hw_initialize_all(state, body):
+    """Initialise every active axis (home + MPOS := 0), X last when coupled."""
+    with state.hw_lock:
+        controller = _require_controller(state)
+        axes = list(getattr(controller, 'axes', ()))
+        if 'X' in axes and axes.index('X') != len(axes) - 1:
+            axes = [a for a in axes if a != 'X'] + ['X']
+        link = getattr(controller, 'link', None)
+        setter = getattr(link, 'set_mpos', None)
+        done = []
+        try:
+            for axis in axes:
+                controller.home_axis_safe(axis, controller.config.motion_timeout)
+                if callable(setter):
+                    setter(controller.physical_axis(axis), 0.0)
+                done.append(axis)
+            snapshot = controller.axis_status_snapshot()
+        except Exception as exc:  # noqa: BLE001
+            operation_log.exception('初始化', '一键初始化', exc, axes=axes)
+            raise
+    operation_log.info('初始化', '一键初始化',
+                       f'完成 {len(done)} 轴: {", ".join(done)}', axes=done)
+    return {'axes': done, 'mpos_zeroed': callable(setter), 'snapshot': snapshot}
+
+
 def hw_stop(state, body):
     # Stop must never wait for a blocking move to finish: it uses the dedicated
     # emergency lock, not ``hw_lock`` (P0-01).
@@ -769,19 +819,28 @@ def studio_init_hardware(state, body):
     frequency_mode = str(body.get('frequency_mode') or '').strip().lower()
     frequency_plan = None
     if vna_source == 'real':
-        # Use the live VNA (TCP/IP) instead of the synthetic one. The frequency
-        # grid is taken from the instrument sweep configured here.
-        vendor = str(body.get('vna_vendor') or 'auto')
-        host = str(body.get('vna_ip') or '192.168.2.111')
-        port = int(body.get('vna_port', 5025))
-        timeout = float(body.get('vna_timeout_ms', 10000)) / 1000.0
-        interface = str(body.get('vna_interface') or 'tcpip').strip().lower()
-        resource = str(body.get('vna_resource') or DEFAULT_GPIB_RESOURCE).strip()
+        # Use the live VNA (TCP/IP) instead of the synthetic one. Connection
+        # parameters default to the settings in use on the "矢网控制" page so
+        # the operator does not have to retype them when building a library.
+        live_vna_cfg = {}
+        try:
+            live_vna_cfg = dict((getattr(state, 'vna', {}) or {}).get('config', {}) or {})
+        except Exception:  # noqa: BLE001
+            live_vna_cfg = {}
+        vendor = str(body.get('vna_vendor') or live_vna_cfg.get('vendor_key') or 'auto')
+        host = str(body.get('vna_ip') or live_vna_cfg.get('host') or '192.168.2.111')
+        port = int(body.get('vna_port') or live_vna_cfg.get('port') or 5025)
+        timeout_ms = body.get('vna_timeout_ms') or live_vna_cfg.get('timeout_ms') or 10000
+        timeout = float(timeout_ms) / 1000.0
+        interface = str(body.get('vna_interface') or live_vna_cfg.get('interface') or 'tcpip').strip().lower()
+        resource = str(body.get('vna_resource') or live_vna_cfg.get('resource') or DEFAULT_GPIB_RESOURCE).strip()
         start = float(body.get('vna_start_hz', 1e9))
         stop = float(body.get('vna_stop_hz', 20e9))
         points = int(body.get('vna_points', 401))
+        dialect = body.get('vna_dialect') or live_vna_cfg.get('dialect')
         vna = create_vna(vendor, host, port, timeout,
-                         interface=interface, resource=resource)
+                         interface=interface, resource=resource,
+                         dialect=dialect or None)
         vna.connect()
         # P0 F-05: an explicit P0 frequency mode uses the validated plan.
         # Without one, the legacy single set_sweep call stays untouched.
@@ -795,10 +854,14 @@ def studio_init_hardware(state, body):
         vna = MockVNAController(config, motion, DEFAULT_FREQUENCIES)
         vna.initialize()
         vna_source_used = 'mock'
-        # List modes only describe the local grid on a mock VNA; never touch
-        # the synthetic instrument's own frequency array.
-        if frequency_mode and frequency_mode != 'freq_sweep':
-            frequency_plan = _frequency_plan_from_body(body)
+        # Apply the operator's grid to the synthetic VNA for every mode.  The
+        # mock has no set_sweep, so apply_frequency_plan assigns vna.frequencies
+        # directly.  Without this, a 6–18 GHz / 3-point sweep built a library
+        # whose metadata said 3 points while the mock's frequency array stayed
+        # at the 1–20 GHz / 41-point default — the grid actually measured and
+        # stored did not match what the operator configured.
+        frequency_plan = _frequency_plan_from_body(body)
+        apply_frequency_plan(vna, frequency_plan)
     if frequency_plan is None:
         grid = getattr(vna, 'frequencies', None)
         values = ([float(v) for v in np.asarray(grid, float).ravel()]
@@ -1086,12 +1149,16 @@ def studio_setup(state, body):
         s['plan_table'] = plan_table
         s['interpolation_mode'] = interp_mode
         s['prerequisite_report'] = report
-    if resumed:
-        # A restarted process has no in-memory model yet.  Rebuild the search
-        # engine / provenance fingerprint from the library so the Smith chart,
-        # tuning and the one-click move-and-verify loop work immediately,
-        # without re-running the calibration.  The ready manager survives.
-        _load_database(state, database, keep_task=True)
+    # Load the library into memory in BOTH branches.  Only the resumed branch
+    # used to call _load_database(): after the first-ever "初始化并建立校准库"
+    # s['data'] stayed None, while the created/broadcast signals still reached
+    # every studio page.  The vector-repeatability point picker then raised
+    # "load a calibration database first", showing a spurious 载入失败 dialog
+    # on the very first build (the second click worked because the file then
+    # existed and took the resumed branch).  Loading the freshly prepared --
+    # still empty -- library makes every subscriber see a consistent dataset.
+    # keep_task=True preserves the ready manager and 'ready' state for the run.
+    _load_database(state, database, keep_task=True)
     operation_log.info('校准', '续扫校准库' if resumed else '建立校准库',
                        f'{plan} 布点 · {len(positions)} 点 · 已有 {valid_count} 点 · {raw_path}',
                        plan=plan, positions=len(positions), path=str(raw_path),
@@ -2436,7 +2503,12 @@ def studio_library_derive(state, body):
     if action == 'reverse_probe':
         return reverse_probe(db, out, str(body.get('axis', 'X')))
     if action == 'split_frequency':
-        return split_by_frequency(db, out)
+        # Honour the operator's frequency pick so a wide-band library does not
+        # explode into one new library per frequency.
+        raw_index = body.get('freq_index')
+        return split_by_frequency(db, out,
+                                  freq_index=(int(raw_index)
+                                              if raw_index not in (None, '') else None))
     if action == 'apply_fixture':
         return apply_fixture(db, out, str(body['fixture_s2p']),
                              direction=str(body.get('direction', 'embed')))
@@ -2670,6 +2742,18 @@ def studio_vector_repeatability(state, body):
     freqs_lib = np.asarray(data['frequencies'], float)
     s_lib = np.asarray(data['s'], complex)  # (P, F, 2, 2); S11 = [:, :, 0, 0]
 
+    # Optional single-frequency selection.  The operator now picks one of the
+    # library frequencies before starting the check so the report stays legible
+    # on wide-band libraries; omitting it keeps the legacy full-band behaviour.
+    compare_all = body.get('frequency_hz') is None
+    if not compare_all:
+        wanted = float(body['frequency_hz'])
+        f_index = int(np.argmin(np.abs(freqs_lib - wanted)))
+        compare_freqs = freqs_lib[f_index:f_index + 1]
+    else:
+        f_index = None
+        compare_freqs = freqs_lib
+
     # Guard frequency-grid agreement before any SCPI / motion.
     vna_freqs = np.asarray(getattr(s['vna'], 'frequencies', None), float)
     if vna_freqs.size and not np.array_equal(vna_freqs, freqs_lib):
@@ -2694,8 +2778,11 @@ def studio_vector_repeatability(state, body):
                     raise ValueError('实测频点数与校准库不一致')
                 s11_measured = m_s[:, 0, 0]
                 s11_memory = s_lib[index, :, 0, 0]
+                if not compare_all:
+                    s11_measured = s11_measured[f_index:f_index + 1]
+                    s11_memory = s11_memory[f_index:f_index + 1]
                 rows.append(vector_repeatability_report(
-                    freqs_lib, s11_measured, s11_memory,
+                    compare_freqs, s11_measured, s11_memory,
                     position=actual.tolist(), point_index=index,
                     label=f'#{index}', tolerance_db=tolerance_db))
             worst = max((r['worst_db'] for r in rows), default=float('-inf'))
@@ -2703,7 +2790,8 @@ def studio_vector_repeatability(state, body):
                 'kind': 'vector_repeatability_memory',
                 'formula': '20*log10|S11_measured - S11_memory|',
                 'n': len(rows),
-                'frequency_hz': [float(f) for f in freqs_lib],
+                'frequency_hz': [float(f) for f in compare_freqs],
+                'single_frequency': (not compare_all),
                 'tolerance_db': tolerance_db,
                 'worst_db': worst,
                 'mean_of_worst_db': float(np.mean([r['worst_db'] for r in rows])),
@@ -2759,19 +2847,39 @@ def studio_vector_repeatability_preview(state, body):
 
 
 def studio_library_points(state, body):
-    """List measured points for the point-picker (index, position, |Γ|)."""
+    """List measured points for the point-picker (index, position, |Γ|).
+
+    ``body['frequency_hz']`` optionally selects one of the library frequencies
+    so the Smith chart and |Γ| column follow the operator's choice instead of a
+    fixed mid-band slice.  The full frequency list is always returned so the UI
+    can build its picker.  A freshly prepared (empty) library simply yields an
+    empty point list -- that is a valid state, not a load failure.
+    """
     s = state.studio
-    if s['data'] is None:
-        raise RuntimeError('load a calibration database first')
+    if s['data'] is None or s['database'] is None:
+        # An empty but prepared library is legitimate after the first build.
+        # Return a usable (empty) payload rather than raising through every
+        # studio page that subscribes to the library-changed broadcast.
+        data = s.get('data')
+        frequencies = (np.asarray(data['frequencies'], float)
+                       if data is not None else np.array([], float))
+        return {'points': [], 'count': 0,
+                'frequencies_hz': [float(f) for f in frequencies],
+                'frequency_hz': None}
     data = s['data']
     valid = np.flatnonzero(np.asarray(data['valid'], bool))
     positions = np.asarray(data['positions'], float)
     s_lib = np.asarray(data['s'], complex)
+    freqs = np.asarray(data['frequencies'], float)
     gammas = RF.dut_gamma(s_lib)  # (P, F)
-    mid = gammas.shape[1] // 2 if gammas.ndim == 2 and gammas.shape[1] else 0
+    wanted = body.get('frequency_hz')
+    if wanted is None:
+        f_index = gammas.shape[1] // 2 if gammas.ndim == 2 and gammas.shape[1] else 0
+    else:
+        f_index = int(np.argmin(np.abs(freqs - float(wanted)))) if freqs.size else 0
     points = []
     for index in valid:
-        g = gammas[index, mid] if gammas.ndim == 2 else gammas[index]
+        g = gammas[index, f_index] if gammas.ndim == 2 else gammas[index]
         points.append({
             'index': int(index),
             'position': [float(v) for v in positions[index]],
@@ -2779,7 +2887,9 @@ def studio_library_points(state, body):
             'gamma_im': float(np.imag(g)),
             'gamma_mag': float(abs(g)),
         })
-    return {'points': points, 'count': len(points)}
+    return {'points': points, 'count': len(points),
+            'frequencies_hz': [float(f) for f in freqs],
+            'frequency_hz': float(freqs[f_index]) if freqs.size else None}
 
 
 def studio_library_plan_derive(state, body):
@@ -3064,6 +3174,8 @@ ROUTES = {
     'POST /api/hardware/move': hw_move,
     'POST /api/hardware/jog': hw_jog,
     'POST /api/hardware/home': hw_home,
+    'POST /api/hardware/initialize': hw_initialize,
+    'POST /api/hardware/initialize_all': hw_initialize_all,
     'POST /api/hardware/stop': hw_stop,
     'POST /api/hardware/probe': hw_probe,
     'POST /api/hardware/apply_scale': hw_apply_scale,

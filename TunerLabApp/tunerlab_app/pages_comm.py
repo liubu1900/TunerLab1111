@@ -99,18 +99,19 @@ class CommunicationPage(QWidget):
             self.model_combo.addItem(
                 f'{count} 轴 ({"/".join(tuner_axes(count))})', count)
         self.model_combo.setToolTip(
-            '当前现场仅提供 3 轴机型（X / Z1 / Z2，2 个探针）。\n'
-            '已保存的 4 轴校准库仍可读取；如需恢复 4 轴选项请联系维护人员。')
-        # Old settings files carry the four-axis default while the wired
-        # tuner has three axes.  Normalise once here so the combo is never
-        # blank and a 4-dimensional coordinate is never sent to a 3-axis box.
+            '3 轴：双台三轴，左 X/Z1/Z2 = 0/1/2，右 X/Z1/Z2 = 3/4/5。\n'
+            '4 轴：单台四轴，X/Z1/Z2/Z3 = 0/1/2/3。\n'
+            '两种机型互斥，切换会整组替换设备组合；各轴参数分别保留。')
+        # Both models are offered now.  A stale settings file can still carry
+        # a count outside the visible set; normalise it once so the combo is
+        # never blank, without touching a legitimate 3- or 4-axis value.
         current = int(self.session.settings.axis_count)
         if current not in VISIBLE_TUNER_MODELS:
             try:
                 self.session.set_axis_count(VISIBLE_TUNER_MODELS[0])
                 operation_log.info(
                     '系统', '归一 tuner 型号',
-                    f'{current} 轴配置已切换到现场机型 '
+                    f'{current} 轴配置不受支持，已切换到 '
                     f'{VISIBLE_TUNER_MODELS[0]} 轴',
                     axis_count=VISIBLE_TUNER_MODELS[0])
             except Exception as exc:  # noqa: BLE001 - never block the page
@@ -465,12 +466,23 @@ class CommunicationPage(QWidget):
         if value is None:
             return
         count = int(value)
+        if count == self.session.settings.axis_count:
+            return
         try:
             self.session.set_axis_count(count)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, 'tuner 型号', str(exc))
+            # Restore the combo to the model that is actually active.
+            self.model_combo.blockSignals(True)
+            self.model_combo.setCurrentIndex(max(
+                0, self.model_combo.findData(self.session.settings.axis_count)))
+            self.model_combo.blockSignals(False)
             return
+        # A model change swaps the whole device combination (2 tuners <-> 1),
+        # so the tuner selector must be rebuilt against the new unit set.
+        self._populate_units()
         self._sync_unit_hint()
+        self._flash(f'已切换到 {count} 轴机型 · {self.session.active_unit.label}')
 
 
 #: The shell refers to this name; both names point at the same page.

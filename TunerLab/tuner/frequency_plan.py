@@ -4,12 +4,15 @@ Pure standard library + numpy; never imports UI or hardware modules.
 ``build_frequency_plan`` produces a validated frequency grid, and
 ``apply_frequency_plan`` pushes it onto a VNA-like object.
 
-List modes (``harmonic_list`` / ``arbitrary_list``) may produce non-uniformly
-spaced frequencies.  A standard SCPI linear sweep (START/STOP/POINTS) cannot
-express an arbitrary list, so :func:`apply_frequency_plan` only maintains the
-local frequency grid and the ``_sweep`` metadata for those modes; the
-instrument side would need per-point frequency setting, which belongs to a
-later stage.  It never sends a non-uniform SCPI sweep to an instrument.
+Every mode is pushed onto the instrument through ``set_sweep(start, stop,
+points)`` when the VNA exposes it.  For list modes (``harmonic_list`` /
+``arbitrary_list``) this is an equal-step linear sweep between the list's
+first and last frequency with one point per requested frequency: it is exact
+for the common uniform lists (e.g. 5/10/15 GHz) and a documented linear
+approximation for non-uniform ones (the plan carries a warning for those).
+Crucially the instrument is never left on a stale 5 GHz single point just
+because the operator picked the "arbitrary list" mode.  VNA-like objects with
+no ``set_sweep`` (mock analyzers) simply take the plan grid directly.
 """
 from __future__ import annotations
 
@@ -159,35 +162,33 @@ def build_frequency_plan(mode: str = 'fo_list', *, fo_hz: float = 5e9,
 
 
 def apply_frequency_plan(vna, plan: dict) -> None:
-    """Apply a plan to a VNA-like object.
+    """Apply a plan to a VNA-like object, instrument included.
 
-    For ``fo_list`` / ``freq_sweep``: call ``vna.set_sweep(start, stop, points)``
-    when available (real analyzers), otherwise only set ``vna.frequencies``
-    (e.g. ``MockVNAController`` which has no ``set_sweep``).
+    All four modes are driven through ``vna.set_sweep(start, stop, points)``
+    when the object exposes it (real analyzers).  The sweep bounds are the
+    plan's first/last frequency and the point count equals the grid length, so
+    a real VNA ends up measuring the requested band instead of staying on a
+    stale 5 GHz single point.  For uniform lists this reproduces the grid
+    exactly; for non-uniform lists it is a linear approximation and the plan
+    already carries a warning to that effect.
 
-    For ``harmonic_list`` / ``arbitrary_list``: set ``vna.frequencies`` directly
-    and, when present, keep ``vna._sweep`` in sync (``{'start','stop','points'}``)
-    so ``get_config()`` stays valid.  Limitation / 限制：列表模式的频率可能不等
-    间隔，标准 SCPI 线性扫频无法表达，本函数只维护本地网格与元信息，**不向仪器
-    下发不等间隔 SCPI**；仪器侧需要逐点设置频率，属后续阶段实现。
+    Objects without ``set_sweep`` (e.g. ``MockVNAController``) take the plan
+    grid directly, and ``vna._sweep`` is kept in sync when present so
+    ``get_config()`` stays valid.
     """
-    key = str(plan.get('mode', 'fo_list')).strip().lower()
     freqs = np.asarray(plan['frequencies_hz'], dtype=float).ravel()
-    if key in ('fo_list', 'freq_sweep'):
-        start = float(plan.get('start_hz', freqs[0] if freqs.size else 0.0))
-        stop = float(plan.get('stop_hz', freqs[-1] if freqs.size else 0.0))
-        points = int(plan.get('points', freqs.size if freqs.size else 1))
-        setter = getattr(vna, 'set_sweep', None)
-        if callable(setter):
-            setter(start, stop, points)
-        else:
-            vna.frequencies = freqs
+    start = float(plan.get('start_hz', freqs[0] if freqs.size else 0.0))
+    stop = float(plan.get('stop_hz', freqs[-1] if freqs.size else 0.0))
+    points = int(plan.get('points', freqs.size if freqs.size else 1))
+    setter = getattr(vna, 'set_sweep', None)
+    if callable(setter):
+        setter(start, stop, points)
     else:
         vna.frequencies = freqs
-        if hasattr(vna, '_sweep'):
-            vna._sweep = {
-                'start': float(freqs[0]),
-                'stop': float(freqs[-1]),
-                'points': int(freqs.size),
-            }
+    if hasattr(vna, '_sweep'):
+        vna._sweep = {
+            'start': float(freqs[0]),
+            'stop': float(freqs[-1]),
+            'points': int(freqs.size),
+        }
     return None

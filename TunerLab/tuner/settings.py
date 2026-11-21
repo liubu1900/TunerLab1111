@@ -33,6 +33,15 @@ Schema 5 adds ``vna_dialect``: the SCPI command set pinned by the SCPI debug
 tool's probe for the real analyzer (e.g. the workshop's GPIB N5244/N5224), so a
 verified dialect survives a restart instead of being re-negotiated with a
 handful of ``-113`` probes on every connect.
+
+Schema 6 makes the *device combination* an explicit part of the tuner model.
+Both models are supported at once, but they are mutually exclusive installations:
+3 axes = two 3-axis tuners (left 0/1/2, right 3/4/5); 4 axes = one 4-axis tuner
+(X=0, Z1=1, Z2=2, Z3=3).  A four-axis tuner needs physical axis 3 for Z3, which
+is the second tuner's X, so the right unit must not exist in that combination.
+``units_by_model`` keeps both combinations' wiring; switching a model swaps the
+whole ``units`` mapping while ``axes_by_unit`` keeps every unit's tuned
+parameters (the keys never collide: ``left``/``right`` vs ``tuner_1``).
 """
 from __future__ import annotations
 
@@ -43,19 +52,20 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .axis_params import (
-    AxisParams, CONTROLLER_AXES, DEFAULT_AXIS_COUNT, TUNER_MODELS,
-    default_axis_params, tuner_axes,
+    AxisParams, CONTROLLER_AXES, DEFAULT_ACTIVE_AXIS_COUNT,
+    DEFAULT_AXIS_COUNT, TUNER_MODELS, default_axis_params, tuner_axes,
 )
 from .tuner_units import (
-    DEFAULT_UNIT_KEY, TunerUnit, default_units, normalise_units, validate_units,
+    DEFAULT_UNIT_BY_MODEL, DEFAULT_UNIT_KEY, TunerUnit, default_units,
+    normalise_units, units_for_model, validate_units,
 )
 
 __all__ = ['ConnectionSettings', 'TunerSettings', 'SettingsStore',
            'default_settings_path', 'TUNER_MODELS', 'DEFAULT_AXIS_COUNT',
-           'SCHEMA_VERSION']
+           'DEFAULT_ACTIVE_AXIS_COUNT', 'SCHEMA_VERSION']
 
 #: Bumped when the on-disk layout changes incompatibly.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 #: Factory IP of a Zmotion controller.
 DEFAULT_IP = '192.168.0.11'
@@ -106,8 +116,9 @@ class TunerSettings:
     connection: ConnectionSettings = field(default_factory=ConnectionSettings)
     #: Controller backend: 'real' (the Zmotion controller) or 'virtual'.
     mode: str = 'real'
-    #: Tuner model: 3 axes (X/Z1/Z2) or 4 axes (X/Z1/Z2/Z3).
-    axis_count: int = DEFAULT_AXIS_COUNT
+    #: Tuner model: 3 axes (X/Z1/Z2) or 4 axes (X/Z1/Z2/Z3).  The model also
+    #: selects the device combination, see :meth:`set_model`.
+    axis_count: int = DEFAULT_ACTIVE_AXIS_COUNT
     #: Per-axis parameters. Always holds an entry for every axis of the active
     #: model; axes of the other model may be present as well so that switching
     #: back and forth keeps a tuned axis.
@@ -130,6 +141,11 @@ class TunerSettings:
     #: load, so a stale probe report cannot inject arbitrary settings.
     vna_dialect: dict[str, str] = field(default_factory=dict)
 
+    # -- schema 6: one device combination per tuner model ------------------
+    #: Wiring of *both* combinations, so switching 3 <-> 4 axes never loses a
+    #: hand-adjusted ``axis_base`` / ``op_base`` / ``datum_in_base``.
+    units_by_model: dict[int, dict[str, TunerUnit]] = field(default_factory=dict)
+
     def __post_init__(self) -> None:
         self.mode = str(self.mode).strip().lower()
         if self.mode not in ('real', 'virtual'):
@@ -142,17 +158,39 @@ class TunerSettings:
                 f'unsupported axis count {self.axis_count}; expected one of '
                 f'{sorted(TUNER_MODELS)}')
         self._check_axes(self.axes, 'axis settings')
-        # A unit mapping can arrive as plain dictionaries (from JSON) or as
-        # TunerUnit objects (from code). Normalise both, then make sure a
-        # stale / unknown active key cannot point outside the mapping.
-        self.units = normalise_units(self.units)
+
+        # The model determines the device combination.  A pre-schema-6 file may
+        # carry e.g. ``axis_count=4`` over the two-tuner 3-axis wiring (or the
+        # other way round); such a mapping would command overlapping physical
+        # axes, so it is replaced by the combination that belongs to the model.
+        # An explicitly supplied mapping whose own axis counts match the model
+        # is honoured (hand-edited single-tuner installations stay supported).
+        self.units_by_model = _normalise_units_by_model(self.units_by_model)
+        supplied = normalise_units(self.units)
+        expected = self.units_by_model[self.axis_count]
+        if all(unit.axis_count == self.axis_count
+               for unit in supplied.values()):
+            # Keeps a hand-edited mapping with different keys too, as long as
+            # every unit agrees with the active model.
+            self.units = supplied
+            self.units_by_model[self.axis_count] = {
+                key: replace(unit) for key, unit in supplied.items()}
+        else:
+            self.units = {key: replace(unit) for key, unit in expected.items()}
+        validate_units(self.units)
+
+        default_key = DEFAULT_UNIT_BY_MODEL.get(self.axis_count)
         if self.active_unit not in self.units:
-            self.active_unit = (DEFAULT_UNIT_KEY if DEFAULT_UNIT_KEY in self.units
+            self.active_unit = (default_key if default_key in self.units
                                 else next(iter(self.units)))
+
         stored = self.axes_by_unit or {}
-        resolved: dict[str, dict[str, AxisParams]] = {}
+        # Keep parameters of units that are not part of the *current*
+        # combination: switching back must not discard a tuned axis.
+        resolved: dict[str, dict[str, AxisParams]] = {
+            key: dict(params) for key, params in stored.items() if params}
         for key, unit in self.units.items():
-            raw = stored.get(key)
+            raw = resolved.get(key) or stored.get(key)
             if raw:
                 self._check_axes(raw, f'axis settings of {unit.label}')
                 params = dict(raw)
@@ -162,6 +200,12 @@ class TunerSettings:
                 params.setdefault(name, default)
             resolved[key] = params
         self.axes_by_unit = resolved
+        # ``axes`` is the live view of the active unit.  It keeps the four-axis
+        # superset so old libraries and parameter pages stay readable, but must
+        # contain every axis the active model actually commands.
+        for name, default in self.units[self.active_unit].default_params().items():
+            self.axes.setdefault(name, default)
+        self.axes_by_unit[self.active_unit] = dict(self.axes)
 
     @staticmethod
     def _check_axes(axes: dict[str, AxisParams], where: str) -> None:
@@ -220,31 +264,58 @@ class TunerSettings:
         self.axes_by_unit[key] = params
         self.axes = dict(params)
 
-    def set_unit_axis_count(self, key: str, count: int) -> None:
-        """Change one tuner's model.
+    def set_model(self, count: int) -> None:
+        """Select a tuner model and swap to its device combination.
 
-        A four-axis tuner needs one axis more than a three-axis one, so
-        changing the model can push a tuner into the axis block of the other
-        one.  The machine only ever runs one model at a time, so that overlap
-        is not rejected here -- it is reported by
-        :meth:`overlapping_units` and shown to the operator, who confirms the
-        wiring.  The axis count itself is still checked against the
-        controller's capacity.
+        3 axes uses two 3-axis tuners (left 0/1/2, right 3/4/5).  4 axes uses
+        one 4-axis tuner with ``X=0, Z1=1, Z2=2, Z3=3``; the right tuner must
+        disappear because its X would otherwise share physical axis 3 with Z3.
+
+        Both combinations' wiring and every unit's tuned parameters are kept in
+        ``units_by_model`` / ``axes_by_unit``, so switching back and forth does
+        not lose anything.  The swap is rejected if the target combination
+        would command overlapping axes.
         """
         count = int(count)
         if count not in TUNER_MODELS:
-            raise ValueError(f'unsupported axis count {count}')
-        if key not in self.units:
-            raise ValueError(f'unknown tuner unit {key!r}')
-        candidate = dict(self.units)
-        candidate[key] = replace(self.units[key], axis_count=count)
-        self.units = candidate
-        self.axes_by_unit.setdefault(key, {})
-        for name, default in self.units[key].default_params().items():
-            self.axes_by_unit[key].setdefault(name, default)
-        if key == self.active_unit:
-            self.axis_count = count
-            self.axes = dict(self.axes_by_unit[key])
+            raise ValueError(
+                f'unsupported axis count {count}; expected one of '
+                f'{sorted(TUNER_MODELS)}')
+        # Park the current combination before replacing it.
+        self.units_by_model = _normalise_units_by_model(self.units_by_model)
+        self.units_by_model[self.axis_count] = {
+            key: replace(unit) for key, unit in self.units.items()}
+        self.axes_by_unit[self.active_unit] = dict(self.axes)
+
+        target = self.units_by_model.get(count) or units_for_model(count)
+        target = {
+            key: replace(unit, axis_count=count)
+            for key, unit in target.items()
+        }
+        validate_units(target)
+        self.units = target
+        self.units_by_model[count] = {
+            key: replace(unit) for key, unit in target.items()}
+        self.axis_count = count
+        default_key = DEFAULT_UNIT_BY_MODEL.get(count)
+        self.active_unit = (default_key if default_key in target
+                            else next(iter(target)))
+
+        params = dict(self.axes_by_unit.get(self.active_unit) or {})
+        for name, default in target[self.active_unit].default_params().items():
+            params.setdefault(name, default)
+        self.axes = params
+        self.axes_by_unit[self.active_unit] = dict(params)
+
+    def set_unit_axis_count(self, key: str, count: int) -> None:
+        """Backwards-compatible alias for :meth:`set_model`.
+
+        The old implementation only changed one unit's ``axis_count``, which
+        silently created an overlapping axis block for the four-axis model.
+        The model now owns the whole combination, so ``key`` is informational
+        only; every caller reaches the same consistent state.
+        """
+        self.set_model(count)
 
     def overlapping_units(self) -> dict[str, list[str]]:
         """Pairs of tuners whose axis blocks intersect.
@@ -289,6 +360,10 @@ class TunerSettings:
             'active_unit': self.active_unit,
             'units': {key: unit.to_dict() for key, unit in self.units.items()},
             'axes_by_unit': per_unit,
+            'units_by_model': {
+                str(count): {key: unit.to_dict() for key, unit in mapping.items()}
+                for count, mapping in self.units_by_model.items()
+            },
             'vna_dialect': dict(self.vna_dialect),
         }
 
@@ -342,7 +417,33 @@ class TunerSettings:
         return cls(connection=connection, mode=mode, axis_count=axis_count,
                    axes=dict(per_unit[active]), active_unit=active,
                    units=units, axes_by_unit=per_unit,
+                   units_by_model=_normalise_units_by_model(data.get('units_by_model')),
                    vna_dialect=_clean_dialect(data.get('vna_dialect')))
+
+
+def _normalise_units_by_model(raw: Any) -> dict[int, dict[str, TunerUnit]]:
+    """Rebuild the per-model wiring map from stored JSON.
+
+    JSON object keys are strings, so ``"3"`` / ``"4"`` are converted back to
+    integers.  Every supported model gets an entry; a model with no stored
+    mapping falls back to its factory combination.  A malformed stored entry
+    is ignored rather than aborting the whole load -- a hand-edited file must
+    still open, with that one combination reset to factory wiring.
+    """
+    stored = raw if isinstance(raw, Mapping) else {}
+    result: dict[int, dict[str, TunerUnit]] = {}
+    for count in TUNER_MODELS:
+        source = stored.get(count)
+        if source is None:
+            source = stored.get(str(count))
+        try:
+            if source:
+                result[count] = normalise_units(source)
+            else:
+                result[count] = units_for_model(count)
+        except ValueError:
+            result[count] = units_for_model(count)
+    return result
 
 
 def _clean_dialect(raw: Any) -> dict[str, str]:

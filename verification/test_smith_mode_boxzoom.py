@@ -45,8 +45,33 @@ def test_zoom_to_rect_fits_chosen_box():
     for g in (g1, g2):
         x, y = v.to_pixel(g, w, h, inset)
         assert ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 <= v.radius(w, h, inset) + 1e-6
-    # A zoomed-in view (smaller selection) magnifies.
-    assert v.zoom > 1.0
+    # A zoomed-in view (smaller selection) magnifies, but must scale with the
+    # *size of the box*, not jump to the 60x cap.  Regression: an extra ``base``
+    # factor in the formula pinned every box-zoom at max_zoom.
+    assert 1.0 < v.zoom < 10.0, f'box zoom should track box size, got {v.zoom}'
+
+
+def test_zoom_to_rect_scales_with_box_size():
+    """A smaller box magnifies more than a larger one, neither pinned at 60x."""
+    w, h, inset = 400.0, 360.0, 36.0
+    cx, cy = w / 2, h / 2
+    # Large box centred at origin: +/- 0.4 in Γ (r = (360-36)/2 = 162 px).
+    r0 = SmithView().radius(w, h, inset)  # == base radius at zoom 1
+    large = SmithView()
+    large.zoom_to_rect(cx - 0.4 * r0, cy - 0.4 * r0,
+                       cx + 0.4 * r0, cy + 0.4 * r0, w, h, inset)
+    # Small box centred at origin: +/- 0.1 in Γ -> ~4x the zoom of the large.
+    small = SmithView()
+    small.zoom_to_rect(cx - 0.1 * r0, cy - 0.1 * r0,
+                       cx + 0.1 * r0, cy + 0.1 * r0, w, h, inset)
+    assert small.zoom > large.zoom
+    assert large.zoom < 5.0 and small.zoom < 20.0, (large.zoom, small.zoom)
+    # Roughly 4x narrower box -> roughly 4x the zoom (margin cancels in ratio).
+    assert 3.0 < small.zoom / large.zoom < 5.0
+    # Chosen centre stays centred for both.
+    for v in (large, small):
+        c = v.to_gamma(cx, cy, w, h, inset)
+        assert abs(c) < 1e-6
 
 
 def test_zoom_to_rect_rejects_degenerate_box():

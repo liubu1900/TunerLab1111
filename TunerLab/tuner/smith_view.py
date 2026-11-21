@@ -117,9 +117,15 @@ class SmithView:
         half_re = max((re_hi - re_lo) / 2.0, 1e-4)
         half_im = max((im_hi - im_lo) / 2.0, 1e-4)
         center = complex((re_lo + re_hi) / 2.0, (im_lo + im_hi) / 2.0)
-        base = self.base_radius(width, height, inset)
-        # Scale so the chosen Γ box (half extents) fills the available extent.
-        new_zoom = min(base / half_re, base / half_im) * margin
+        # ``half_re`` / ``half_im`` are already expressed in Γ units (the two
+        # screen corners were inverted through the current transform), and the
+        # new zoom multiplies the same base radius those corners were derived
+        # with.  The required factor is therefore 1 / half_extent, NOT
+        # base / half_extent: the latter multiplied by an extra ~160 px and
+        # pinned every box-zoom at max_zoom (60x), so the selected box became a
+        # tiny speck instead of filling the view.  Zoom is relative to the
+        # *current* transform, so do not fold in the old zoom here either.
+        new_zoom = min(1.0 / half_re, 1.0 / half_im) * margin
         new_zoom = min(self.max_zoom, max(self.min_zoom, new_zoom))
         self.zoom = new_zoom
         r = self.radius(width, height, inset)

@@ -153,16 +153,37 @@ def test_apply_frequency_plan_without_set_sweep_is_safe():
     assert list(vna.frequencies) == [5e9]
 
 
-def test_apply_frequency_plan_list_mode_syncs_sweep_without_scpi():
+def test_apply_frequency_plan_list_mode_pushes_sweep_to_instrument():
+    """A list mode must drive the real VNA, not leave it on 5 GHz.
+
+    Regression: the old implementation only maintained the local grid for list
+    modes and issued no SCPI, so a real analyzer stayed on whatever single
+    point it had (typically 5 GHz) while the library claimed the list grid.
+    Now the list's first/last/count are swept onto the instrument (exact for
+    uniform lists), and the local grid follows the instrument.
+    """
     vna = _FakeVNA(with_sweep=True)
     plan = build_frequency_plan('arbitrary_list',
-                                frequencies_hz=[5e9, 7e9, 11e9])
+                                frequencies_hz=[5e9, 7e9, 9e9])  # uniform 2 GHz steps
     apply_frequency_plan(vna, plan)
-    assert vna.calls == []  # no non-uniform SCPI sweep issued
-    assert list(vna.frequencies) == [5e9, 7e9, 11e9]
+    # A uniform list maps exactly onto a linear sweep.
+    assert vna.calls == [(5e9, 9e9, 3)]
+    assert [round(float(f)) for f in vna.frequencies] == [5e9, 7e9, 9e9]
     assert vna._sweep['start'] == 5e9
-    assert vna._sweep['stop'] == 11e9
+    assert vna._sweep['stop'] == 9e9
     assert vna._sweep['points'] == 3
+
+
+def test_apply_frequency_plan_nonuniform_list_is_linear_approximation():
+    """Non-uniform lists are approximated by a linear sweep, never skipped."""
+    vna = _FakeVNA(with_sweep=True)
+    plan = build_frequency_plan('arbitrary_list',
+                                frequencies_hz=[5e9, 6e9, 11e9])
+    apply_frequency_plan(vna, plan)
+    # 3 points from 5 to 11 GHz -> linear grid 5/8/11; instrument is driven.
+    assert vna.calls == [(5e9, 11e9, 3)]
+    assert len(vna.frequencies) == 3
+    assert any('不等间隔' in w for w in plan['warnings'])
 
 
 # --------------------------------------------------------------------------- #

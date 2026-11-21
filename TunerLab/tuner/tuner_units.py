@@ -38,6 +38,8 @@ __all__ = [
     'TunerUnit', 'DEFAULT_UNIT_KEY', 'MAX_CONTROLLER_AXES',
     'DEFAULT_TUNER_UNITS', 'default_units', 'normalise_units',
     'validate_units', 'unit_axis_params', 'axis_map_text',
+    'INSTALLATIONS', 'DEFAULT_UNIT_BY_MODEL', 'units_for_model',
+    'installation_label',
 ]
 
 #: Unit selected when nothing else is configured.
@@ -186,6 +188,60 @@ DEFAULT_TUNER_UNITS: tuple[TunerUnit, ...] = (
 def default_units() -> dict[str, TunerUnit]:
     """A fresh copy of the factory tuner configuration."""
     return {unit.key: replace(unit) for unit in DEFAULT_TUNER_UNITS}
+
+
+#: Device combination (installation) that belongs to each tuner model.
+#:
+#: A 4-axis tuner occupies physical axes 0..3.  Axis 3 is the X of the second
+#: tuner in the 3-axis combination, so a four-axis machine can only ever be a
+#: **single** tuner: keeping the right unit would send Z3 and the right X to the
+#: same drive.  The two combinations are therefore mutually exclusive and the
+#: model selector swaps between them as a whole.
+#:
+#:   3 -> 双台三轴：左 X/Z1/Z2 = 0/1/2，右 X/Z1/Z2 = 3/4/5
+#:   4 -> 单台四轴：X/Z1/Z2/Z3 = 0/1/2/3
+INSTALLATIONS: dict[int, tuple[TunerUnit, ...]] = {
+    3: DEFAULT_TUNER_UNITS,
+    4: (
+        TunerUnit(key='tuner_1', label='Tuner 1', axis_base=0, axis_count=4,
+                  op_base=0, datum_in_base=16),
+    ),
+}
+
+#: Unit selected by default when a model becomes active.
+DEFAULT_UNIT_BY_MODEL: dict[int, str] = {
+    3: DEFAULT_UNIT_KEY,   # 'left'
+    4: 'tuner_1',
+}
+
+#: Human-readable name of each combination, shown next to the model selector.
+INSTALLATION_LABELS: dict[int, str] = {
+    3: '双台三轴（左 0/1/2 · 右 3/4/5）',
+    4: '单台四轴（X=0 · Z1=1 · Z2=2 · Z3=3）',
+}
+
+
+def units_for_model(axis_count: int) -> dict[str, TunerUnit]:
+    """Fresh unit mapping for a tuner model.
+
+    The mapping is the single authority for *which* physical controller axes a
+    model commands.  A 4-axis model always resolves to ``X=0, Z1=1, Z2=2,
+    Z3=3``; a 3-axis model to the commissioned two-tuner wiring.
+    """
+    try:
+        count = int(axis_count)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f'invalid axis count: {axis_count!r}') from exc
+    if count not in INSTALLATIONS:
+        raise ValueError(
+            f'unsupported axis count {count}; expected one of '
+            f'{sorted(INSTALLATIONS)}')
+    return {unit.key: replace(unit) for unit in INSTALLATIONS[count]}
+
+
+def installation_label(axis_count: int) -> str:
+    """One-line description of the device combination behind a model."""
+    return INSTALLATION_LABELS.get(int(axis_count), f'{axis_count} 轴')
 
 
 def normalise_units(raw: Any) -> dict[str, TunerUnit]:

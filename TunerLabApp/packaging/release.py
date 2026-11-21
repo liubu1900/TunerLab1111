@@ -168,12 +168,27 @@ def run(label: str, args: list[str], cwd: Path | None = None,
 
 
 def previous_release_internal() -> Path | None:
-    """The ``_internal`` folder of the newest existing release."""
+    """The ``_internal`` folder of the newest existing release.
+
+    Release folders are named ``TunerLab-<version>-dist`` (and the original
+    ``TunerLab-0.5.13-dist_base``).  Sort by the parsed version, not by the raw
+    path string: a lexicographic sort puts ``0.5.13`` after ``0.5.13.5`` and
+    would silently copy the runtime DLLs from the wrong build.
+    """
     if not RELEASES.is_dir():
         return None
-    candidates = sorted(RELEASES.glob('TunerLab-*-dist_*/TunerLab/_internal'),
-                        reverse=True)
-    return candidates[0] if candidates else None
+    candidates: list[tuple[tuple[int, ...], Path]] = []
+    for folder in RELEASES.glob('TunerLab-*-dist*/TunerLab/_internal'):
+        name = folder.parent.parent.name          # TunerLab-<version>-dist...
+        match = re.search(r'TunerLab-(\d+(?:\.\d+)*)-dist', name)
+        if not match:
+            continue
+        key = tuple(int(part) for part in match.group(1).split('.'))
+        candidates.append((key, folder))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
 
 
 def copy_runtime_dlls(source: Path | None) -> None:

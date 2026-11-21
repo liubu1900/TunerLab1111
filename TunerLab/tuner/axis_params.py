@@ -42,8 +42,9 @@ _AXIS_PARAM_BOUNDS = {
 
 __all__ = ['AxisParams', 'AXIS_NAMES', 'axis_index', 'default_axis_params',
            'TUNER_AXES', 'CONTROLLER_AXES', 'TUNER_MODELS', 'tuner_axes',
-           'axis_count_of', 'DEFAULT_AXIS_COUNT', 'COORDINATE_FIELDS',
-           'affects_coordinate_frame', 'VISIBLE_TUNER_MODELS']
+           'axis_count_of', 'DEFAULT_AXIS_COUNT', 'DEFAULT_ACTIVE_AXIS_COUNT',
+           'COORDINATE_FIELDS', 'affects_coordinate_frame',
+           'VISIBLE_TUNER_MODELS']
 
 #: Controller axis order. The shared X axis is index 0; the probes follow.
 #:
@@ -68,16 +69,32 @@ TUNER_MODELS: dict[int, tuple[str, ...]] = {
     4: ('X', 'Z1', 'Z2', 'Z3'),
 }
 
-#: Tuner models offered in the operator UI.  The machine on site currently
-#: carries the 3-axis (2-probe) tuner only, so the 4-axis entry is hidden for
-#: now; add ``4`` back to this tuple to restore it -- no other change needed.
-#: ``TUNER_MODELS`` deliberately keeps *both* definitions so an old four-axis
-#: calibration library stays readable, and the HTTP model API still accepts
-#: both counts.
-VISIBLE_TUNER_MODELS: tuple[int, ...] = (3,)
+#: Tuner models offered in the operator UI.  Both models are supported at the
+#: same time: the operator picks the one that is bolted to the machine.
+#:
+#: ``TUNER_MODELS`` keeps both definitions so an old four-axis calibration
+#: library stays readable, and the HTTP model API accepts both counts.  The
+#: physical device combination is derived from the model by
+#: :func:`tuner.tuner_units.units_for_model`:
+#:
+#:   3 axes -> two 3-axis tuners (left 0/1/2, right 3/4/5)
+#:   4 axes -> one 4-axis tuner  (X=0, Z1=1, Z2=2, Z3=3)
+#:
+#: A 4-axis tuner needs physical axis 3 for Z3, which is the second tuner's X,
+#: so the two combinations are mutually exclusive.  Switching the model swaps
+#: the whole combination; the other model's per-axis parameters are kept.
+VISIBLE_TUNER_MODELS: tuple[int, ...] = (3, 4)
 
-#: Axis count assumed when nothing else is known.
+#: Axis count of the controller's full axis set, used as the default for
+#: ``default_axis_params()`` and for validating stored parameter maps.  This is
+#: *not* the factory tuner model -- see ``DEFAULT_ACTIVE_AXIS_COUNT``.
 DEFAULT_AXIS_COUNT = 4
+
+#: Tuner model a fresh installation starts with.  The two-tuner 3-axis wiring
+#: is the commissioned machine, so the active model must agree with the default
+#: unit set (both are 3 axes); an inconsistent pair used to make the UI show
+#: four axes while the backend commanded three.
+DEFAULT_ACTIVE_AXIS_COUNT = 3
 
 
 def tuner_axes(axis_count: int) -> tuple[str, ...]:

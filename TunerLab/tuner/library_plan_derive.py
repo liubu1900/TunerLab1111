@@ -82,12 +82,25 @@ def derive_by_gamma_plan(src_db, new_path, *, plan='gamma_rings', density='mediu
     data = src_db.load()
     meta = normalise_metadata(data['metadata'])
     z0 = float(meta.get('z0', 50.0) or 50.0)
+    # An explicitly chosen frequency turns the derived library into a
+    # single-frequency one.  A wide-band source otherwise produces a derived
+    # library carrying every frequency for every point -- far too many S rows
+    # to inspect, and exactly the "too many points / too messy" complaint.
+    # Leaving ``frequency_hz`` unset preserves the legacy full-band behaviour.
+    explicit_frequency = frequency_hz is not None
     count = density_count(density)
     targets = plan_target_gamma(
         plan, count=count, r_min=r_min, r_max=r_max, method=method,
         enhanced_center=enhanced_center, enhanced_50ohm=enhanced_50ohm)
 
     valid, gammas, used_freq = _measured_gammas(data, frequency_hz, z0)
+    if explicit_frequency:
+        all_freqs = np.asarray(data['frequencies'], float)
+        f_index = int(np.argmin(np.abs(all_freqs - used_freq)))
+        out_frequencies = np.asarray([used_freq], float)
+    else:
+        f_index = None
+        out_frequencies = np.asarray(data['frequencies'], float)
 
     # Nearest measured point for each target in the complex Γ plane.
     # (n_target, n_valid) distance matrix; libraries are at most a few thousand
@@ -127,13 +140,14 @@ def derive_by_gamma_plan(src_db, new_path, *, plan='gamma_rings', density='mediu
         plan_r_min=float(r_min),
         plan_r_max=float(r_max),
         plan_frequency_hz=used_freq,
+        frequency_list=[float(v) for v in out_frequencies],
     )
     target.create(
-        TunerConfig(**meta['config']),
-        np.asarray(data['frequencies'], float), positions, new_meta)
+        TunerConfig(**meta['config']), out_frequencies, positions, new_meta)
     for k, src_idx in enumerate(chosen):
-        meas = Measurement(np.asarray(data['frequencies'], float),
-                           src_s[src_idx], bool(meta.get('simulated', False)))
+        s_point = src_s[src_idx, f_index:f_index + 1] if f_index is not None else src_s[src_idx]
+        meas = Measurement(out_frequencies, s_point,
+                           bool(meta.get('simulated', False)))
         target.write_point(k, actual[k], meas)
 
     result_gammas = gammas[nearest]

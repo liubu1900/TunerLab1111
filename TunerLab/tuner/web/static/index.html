@@ -70,11 +70,13 @@
           <div class="form-row">
             <label>tuner 型号</label>
             <select id="hw-model">
-              <option value="3">3 轴 tuner (X, Z1, Z2)</option>
+              <option value="3">3 轴 · 双台三轴（左 0/1/2 · 右 3/4/5）</option>
+              <option value="4">4 轴 · 单台四轴（X=0 · Z1=1 · Z2=2 · Z3=3）</option>
             </select>
           </div>
-          <p class="hint">当前现场仅提供 3 轴机型（X / Z1 / Z2，2 个探针），4 轴选项已隐藏。
-            已保存的 4 轴校准库仍可读取；切换型号只影响本机命令的轴集合，控制器物理轴序号不变。</p>
+          <p class="hint">3 轴机型为双台三轴（左 X/Z1/Z2 = 0/1/2，右 X/Z1/Z2 = 3/4/5）；
+            4 轴机型为单台四轴（X/Z1/Z2/Z3 = 0/1/2/3）。两种机型互斥，切换会整组替换设备组合，
+            但各 Tuner 的轴参数分别保留。已保存的旧校准库仍可读取。</p>
           <div class="btn-row">
             <button id="hw-connect" class="btn primary">连接</button>
             <button id="hw-disconnect" class="btn">断开</button>
@@ -171,6 +173,8 @@
             <button id="hw-jog-pos" class="btn">点动 +</button>
             <button id="hw-abs" class="btn primary">绝对定位</button>
             <button id="hw-home" class="btn">回零</button>
+            <button id="hw-init" class="btn">初始化</button>
+            <button id="hw-init-all" class="btn">一键初始化全部轴</button>
             <button id="hw-stop" class="btn">停止</button>
             <button id="hw-probe" class="btn">标度自检</button>
           </div>
@@ -509,9 +513,17 @@
             <button id="vr-clear" class="btn">清空</button>
           </div>
           <div class="form-row">
+            <label>频率（从库中选择，必选）</label>
+            <select id="vr-freq"></select>
             <label>判定阈值 (dB)</label>
             <input id="vr-tol" class="num" type="number" step="0.5" value="-30" />
             <label>已选 <b id="vr-count" class="num">0</b> 点</label>
+          </div>
+          <div class="btn-row">
+            <button id="vr-smith-in" class="btn">放大</button>
+            <button id="vr-smith-out" class="btn">缩小</button>
+            <button id="vr-smith-reset" class="btn">复原</button>
+            <span class="hint">框选放大 · Shift+拖动平移 · 点击图中的点可选中对应点位</span>
           </div>
           <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
             <div style="flex:1;min-width:260px;max-height:300px;overflow:auto">
@@ -682,14 +694,20 @@
             <input id="gd-rmin" class="num" type="number" step="0.05" value="0" />
             <label>|Γ| 最大</label>
             <input id="gd-rmax" class="num" type="number" step="0.05" value="0.95" />
-            <label>频率 (GHz, 留空取中频)</label>
-            <input id="gd-freq" class="num" type="number" step="0.1" value="" />
+            <label>频率（从库中选择，必选）</label>
+            <select id="gd-freq"></select>
             <label>输出路径</label>
             <input id="gd-path" type="text" placeholder="派生库 .h5" />
           </div>
           <div class="btn-row">
             <button id="gd-preview" class="btn">预览目标 Γ</button>
             <button id="gd-run" class="btn primary">派生新库</button>
+          </div>
+          <div class="btn-row">
+            <button id="gd-smith-in" class="btn">放大</button>
+            <button id="gd-smith-out" class="btn">缩小</button>
+            <button id="gd-smith-reset" class="btn">复原</button>
+            <span class="hint">框选放大 · Shift+拖动平移</span>
           </div>
           <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
             <canvas id="gd-smith" width="300" height="300"></canvas>

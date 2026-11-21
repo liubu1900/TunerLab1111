@@ -204,7 +204,11 @@ def no_modal_dialogs(monkeypatch):
 
 @pytest.fixture
 def session(tmp_path):
+    # The stub link/controller expose the full 4-axis set (TUNER_AXES, positions
+    # 0..3), so these page tests exercise the 4-axis model explicitly.  A fresh
+    # install now defaults to 3 axes; pin 4 here to keep that coverage.
     store = SettingsStore(tmp_path / 'settings.json')
+    store.save(TunerSettings(axis_count=4))
     return StubSession(store)
 
 

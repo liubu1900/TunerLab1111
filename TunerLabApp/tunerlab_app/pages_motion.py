@@ -233,10 +233,22 @@ class SafeAxisMotionPage(AxisMotionPage):
             '故障清除后回零状态失效，必须重新回零才能运动。')
         self.reset_fault_button.clicked.connect(self.on_reset_fault)
 
+        # The base page created this button in the layout we just emptied; it
+        # survived the takeAt loop as a widget but has no parent row any more.
+        init_all = getattr(self, 'init_all_button', None)
+        if init_all is None:
+            init_all = QPushButton('一键初始化全部轴')
+            self.init_all_button = init_all
+        # The base page already connected ``clicked`` to ``on_initialize_all``;
+        # only re-home the widget into this row.  Connecting again here made a
+        # single click fire the confirmation dialog twice.
+        init_all.setToolTip('一键初始化全部轴（会移动机械）')
+
         row.addWidget(self.estop_button)
         row.addWidget(self.stop_button)
         row.addWidget(self.reset_button)
         row.addWidget(self.reset_fault_button)
+        row.addWidget(init_all)
 
         self.travel_label = QLabel('')
         self.travel_label.setObjectName('PageHint')
@@ -526,11 +538,13 @@ class SafeAxisMotionPage(AxisMotionPage):
         abs_btn = QPushButton('定位')
         abs_btn.setProperty('accent', True)
         home_btn = QPushButton('回零')
+        init_btn = QPushButton('初始化')
+        init_btn.setToolTip('初始化该轴（会移动机械）')
         probe_btn = QPushButton('标度自检')
         probe_btn.setToolTip(
             '让该轴走一个极小步长再回到原位，测量「编码器位移 ÷ 指令位移」。'
             '比值不为 1 说明 UNITS 与反馈标度不匹配，轴的实际行程远大于指令数字。')
-        for button in (abs_btn, home_btn, probe_btn):
+        for button in (abs_btn, home_btn, init_btn, probe_btn):
             button.setFont(px_font(12.5, 'medium'))
             button.setFixedHeight(30)
             form.addWidget(button)
@@ -543,12 +557,13 @@ class SafeAxisMotionPage(AxisMotionPage):
             'bar': bar, 'dpos_label': dpos_label, 'mpos_label': mpos_label,
             'step': step, 'jog_neg': jog_neg, 'jog_pos': jog_pos,
             'target': target, 'abs_btn': abs_btn, 'home_btn': home_btn,
-            'probe_btn': probe_btn,
+            'init_btn': init_btn, 'probe_btn': probe_btn,
         }
         jog_neg.clicked.connect(lambda _=False, a=axis: self.on_jog(a, -1))
         jog_pos.clicked.connect(lambda _=False, a=axis: self.on_jog(a, +1))
         abs_btn.clicked.connect(lambda _=False, a=axis: self.on_absolute(a))
         home_btn.clicked.connect(lambda _=False, a=axis: self.on_home(a))
+        init_btn.clicked.connect(lambda _=False, a=axis: self.on_initialize_axis(a))
         probe_btn.clicked.connect(lambda _=False, a=axis: self.on_probe_scale(a))
         add_card_shadow(panel, blur=12)
         return panel
