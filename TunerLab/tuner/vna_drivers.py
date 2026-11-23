@@ -513,6 +513,11 @@ class TCPVNA:
 
         self.frequencies = np.array([], dtype=float)
         self._sweep = {'start': 1e9, 'stop': 20e9, 'points': 41}
+        #: Non-uniform frequency grid installed by :meth:`set_frequency_grid`.
+        #: When set, :meth:`measure` visits each point with its own single-point
+        #: sweep instead of reading one linear trace labelled with a linspace
+        #: grid. ``None`` means the normal linear sweep from ``set_sweep``.
+        self._frequency_grid: Optional[np.ndarray] = None
         self._power = -10.0
         self._ifbw = 1000.0
 
@@ -942,6 +947,40 @@ class TCPVNA:
             self.frequencies = (np.asarray([start], dtype=float) if n == 1
                                 else np.linspace(start, stop, n))
 
+    def set_frequency_grid(self, frequencies_hz) -> None:
+        """Install an explicit, non-uniform frequency grid for point-by-point acquisition.
+
+        Some load-pull plans use irregular frequencies (e.g. 1/2/4/8 GHz).  A
+        linear sweep cannot express those: pushing ``start/stop/points`` makes
+        the analyser step uniformly and label every trace sample with the wrong
+        frequency.  Instead we keep the exact list locally and, on each
+        :meth:`measure`, tune the instrument to one frequency at a time with a
+        single-point sweep (``START == STOP``) and read that one complex sample.
+
+        The frequencies are validated here (finite, positive, strictly
+        increasing) so an invalid list never reaches the instrument.  Power,
+        IF bandwidth and the negotiated SCPI dialect are left untouched.
+        """
+        grid = np.asarray(frequencies_hz, dtype=float).ravel()
+        if grid.size == 0:
+            raise ValueError('频率列表不能为空')
+        if not np.isfinite(grid).all():
+            raise ValueError('频率列表必须全部为有限数值')
+        if np.any(grid <= 0):
+            raise ValueError('频率列表必须全部为正数')
+        if grid.size > 1 and np.any(np.diff(grid) <= 0):
+            raise ValueError('频率列表必须严格递增（不允许重复或递减）')
+        with self.lock:
+            self._frequency_grid = grid.copy()
+            # The grid the library is built from is the exact operator list,
+            # never a linspace approximation of it.
+            self.frequencies = grid.copy()
+            self._sweep = {
+                'start': float(grid[0]),
+                'stop': float(grid[-1]),
+                'points': int(grid.size),
+            }
+
     def set_power(self, dbm: float) -> None:
         with self.lock:
             self.transport.write(f"{self._power_cmd} {float(dbm):.6g}")
@@ -966,6 +1005,8 @@ class TCPVNA:
             'dialect': dict(self.dialect),
             'dialect_warning': self.dialect_warning,
             'error_queue_usable': self._error_queue_state,
+            'frequency_grid': ([float(v) for v in self._frequency_grid]
+                               if self._frequency_grid is not None else None),
         }
 
     # -- acquisition -----------------------------------------------------
@@ -1028,13 +1069,37 @@ class TCPVNA:
     def measure(self) -> Measurement:
         if not self.connected:
             raise RuntimeError('VNA not connected')
-        self.trigger_single()
-        traces = self.fetch_all()
-        f = self.frequencies
-        s = np.empty((f.size, 2, 2), dtype=complex)
-        for key, (op, ip) in {'S11': (0, 0), 'S21': (1, 0),
-                              'S12': (0, 1), 'S22': (1, 1)}.items():
-            s[:, op, ip] = traces[key]
+        grid = self._frequency_grid
+        if grid is not None:
+            # Non-uniform list: one single-point sweep per requested frequency.
+            # Each point is measured at the frequency the operator typed, so the
+            # returned grid and every S sample share the same exact labels.
+            s = np.empty((grid.size, 2, 2), dtype=complex)
+            for index, freq in enumerate(grid):
+                self.set_sweep(freq, freq, 1)
+                self.trigger_single()
+                traces = self.fetch_all()
+                for key, (op, ip) in {'S11': (0, 0), 'S21': (1, 0),
+                                      'S12': (0, 1), 'S22': (1, 1)}.items():
+                    s[index, op, ip] = traces[key][0]
+            # Restore the full grid: set_sweep(f, f, 1) left frequencies at a
+            # single point and _sweep at the last tuned frequency.  The library
+            # was built from the full list and measure() must report it back.
+            self.frequencies = grid.copy()
+            self._sweep = {
+                'start': float(grid[0]),
+                'stop': float(grid[-1]),
+                'points': int(grid.size),
+            }
+            f = grid
+        else:
+            self.trigger_single()
+            traces = self.fetch_all()
+            f = self.frequencies
+            s = np.empty((f.size, 2, 2), dtype=complex)
+            for key, (op, ip) in {'S11': (0, 0), 'S21': (1, 0),
+                                  'S12': (0, 1), 'S22': (1, 1)}.items():
+                s[:, op, ip] = traces[key]
         cal = vna_calibration.get_state()
         return Measurement(
             f.copy(), s, False,

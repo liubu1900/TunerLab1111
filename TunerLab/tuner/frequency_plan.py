@@ -4,15 +4,15 @@ Pure standard library + numpy; never imports UI or hardware modules.
 ``build_frequency_plan`` produces a validated frequency grid, and
 ``apply_frequency_plan`` pushes it onto a VNA-like object.
 
-Every mode is pushed onto the instrument through ``set_sweep(start, stop,
-points)`` when the VNA exposes it.  For list modes (``harmonic_list`` /
-``arbitrary_list``) this is an equal-step linear sweep between the list's
-first and last frequency with one point per requested frequency: it is exact
-for the common uniform lists (e.g. 5/10/15 GHz) and a documented linear
-approximation for non-uniform ones (the plan carries a warning for those).
-Crucially the instrument is never left on a stale 5 GHz single point just
-because the operator picked the "arbitrary list" mode.  VNA-like objects with
-no ``set_sweep`` (mock analyzers) simply take the plan grid directly.
+Uniform modes are pushed through ``set_sweep(start, stop, points)``.  For
+non-uniform list modes (``harmonic_list`` / ``arbitrary_list``) the exact grid
+is installed with ``set_frequency_grid(freqs)`` when the VNA exposes it: the
+driver then visits each requested frequency as a single-point sweep instead
+of collapsing the list into an equal-step ``linspace``.  Analyzers that only
+offer ``set_sweep`` keep the documented linear approximation; they are still
+never left on a stale 5 GHz single point just because the operator picked the
+"arbitrary list" mode.  VNA-like objects with no ``set_frequency_grid``
+(mock analyzers, older callers) simply take the plan grid directly.
 """
 from __future__ import annotations
 
@@ -164,27 +164,38 @@ def build_frequency_plan(mode: str = 'fo_list', *, fo_hz: float = 5e9,
 def apply_frequency_plan(vna, plan: dict) -> None:
     """Apply a plan to a VNA-like object, instrument included.
 
-    All four modes are driven through ``vna.set_sweep(start, stop, points)``
-    when the object exposes it (real analyzers).  The sweep bounds are the
-    plan's first/last frequency and the point count equals the grid length, so
-    a real VNA ends up measuring the requested band instead of staying on a
-    stale 5 GHz single point.  For uniform lists this reproduces the grid
-    exactly; for non-uniform lists it is a linear approximation and the plan
-    already carries a warning to that effect.
+    Uniform grids are driven through ``vna.set_sweep(start, stop, points)``:
+    the bounds are the plan's first/last frequency and the point count equals
+    the grid length, so a real VNA measures the requested band instead of
+    staying on a stale 5 GHz single point.  A uniform list is reproduced
+    exactly by that linear sweep.
 
-    Objects without ``set_sweep`` (e.g. ``MockVNAController``) take the plan
-    grid directly, and ``vna._sweep`` is kept in sync when present so
-    ``get_config()`` stays valid.
+    A NON-uniform grid (arbitrary/harmonic list with irregular spacing) must
+    not be linearised: ``linspace(start, stop, n)`` would silently replace the
+    operator's 1/2/4/8 GHz with 1/3.3/5.7/8 GHz and every stored sample would
+    be labelled with the wrong frequency.  When the instrument driver exposes
+    ``set_frequency_grid(freqs)`` it is used to install the exact list and the
+    driver acquires each point with a single-point sweep.  Drivers without
+    that capability (older callers, mocks) keep the documented linear
+    approximation via ``set_sweep``.
+
+    Objects with neither setter take the plan grid directly.  ``vna._sweep``
+    is kept in sync when present so ``get_config()`` stays valid.
     """
     freqs = np.asarray(plan['frequencies_hz'], dtype=float).ravel()
     start = float(plan.get('start_hz', freqs[0] if freqs.size else 0.0))
     stop = float(plan.get('stop_hz', freqs[-1] if freqs.size else 0.0))
     points = int(plan.get('points', freqs.size if freqs.size else 1))
-    setter = getattr(vna, 'set_sweep', None)
-    if callable(setter):
-        setter(start, stop, points)
+    uniform = bool(plan.get('uniform', _is_uniform(freqs)))
+    grid_setter = getattr(vna, 'set_frequency_grid', None)
+    if (not uniform and freqs.size > 1 and callable(grid_setter)):
+        grid_setter(freqs)
     else:
-        vna.frequencies = freqs
+        setter = getattr(vna, 'set_sweep', None)
+        if callable(setter):
+            setter(start, stop, points)
+        else:
+            vna.frequencies = freqs
     if hasattr(vna, '_sweep'):
         vna._sweep = {
             'start': float(freqs[0]),

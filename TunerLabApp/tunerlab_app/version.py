@@ -4,7 +4,7 @@
 file-version resource, so a bug report can always be tied to a build.
 """
 
-__version__ = '0.5.13.8'
-__release_date__ = '2026-11-21'
+__version__ = '0.5.13.9'
+__release_date__ = '2026-11-23'
 __app_name__ = 'TunerLab'
 __app_title__ = 'TunerLab · 负载牵引调谐器控制与校准'
